@@ -8,5 +8,5 @@
     "meminput"     : 0,
     "urlbaseinput" : 7,
     "fcst_cycle"   : [0],
-    "lead_time"    : [1]
+    "lead_time"    : [1,2,3,4,5,6]
 }
