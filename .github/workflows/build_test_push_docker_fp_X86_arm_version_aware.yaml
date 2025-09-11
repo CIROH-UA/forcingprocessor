@@ -152,7 +152,7 @@ jobs:
 
       - name: Build AWS Infra
         run: |
-          cd research_datastream/terraform
+          cd ngen-datastream/research_datastream/terraform
           terraform init
           terraform validate
           ../scripts/import_resources.sh ./test/variables_gitactions_arm.tfvars
@@ -189,7 +189,7 @@ jobs:
           
           BUILD_FLAGS=$(echo "$BUILD_FLAGS" | sed 's/^ *//')  
           
-          cd ngen-datastream/research_datastream/terraform
+          cd executions/execution_gp_arm_docker_buildNtester.json
 
           sed -i -e "s/\${TAG}/$TAG/g" -e "s/\${BUILD_ARGS}/$BUILD_FLAGS/g" \
             test/execution_gp_arm_docker_buildNtester.json
