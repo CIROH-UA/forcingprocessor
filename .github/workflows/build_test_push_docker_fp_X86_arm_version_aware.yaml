@@ -22,6 +22,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       build_fp: ${{ steps.changes.outputs.build_fp }}
+      fp_version: ${{ steps.changes.outputs.fp_version }}
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
