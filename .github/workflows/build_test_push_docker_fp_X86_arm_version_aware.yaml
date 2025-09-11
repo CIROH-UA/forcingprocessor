@@ -100,8 +100,9 @@ jobs:
   
     - name: Prepare and test docker containers
       run: |
+        cd ngen-datastream
         curl -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/palisade.gpkg
-        export DS_TAG=latest-x86 FP_TAG=latest-x86 && ./ngen-datastream/scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/ngen-datastream/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
+        export DS_TAG=latest-x86 FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
 
     - name: Push docker containers
       run: |
@@ -145,14 +146,14 @@ jobs:
           fi
           
           # Replace ${BRANCH_NAME} with actual branch name in the file
-          cd ngen-datastream/research_datastream/terraform/test
+          cd $GITHUB_WORKSPACE/executions
           sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" execution_gp_arm_docker_buildNtester.json
           cat execution_gp_arm_docker_buildNtester.json
 
 
       - name: Build AWS Infra
         run: |
-          cd ngen-datastream/research_datastream/terraform
+          cd $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform
           terraform init
           terraform validate
           ../scripts/import_resources.sh ./test/variables_gitactions_arm.tfvars
@@ -161,50 +162,47 @@ jobs:
           
       - name: Set permissions
         run: |
-          cd research_datastream/terraform
+          cd $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform
           aws iam attach-role-policy --role-name datastream_ec2_role_github_actions_arm --policy-arn arn:aws:iam::aws:policy/SecretsManagerReadWrite
           aws secretsmanager put-resource-policy --secret-id docker_awiciroh_creds --resource-policy file://test/secret-policy.json --block-public-policy --region us-east-1
           if ! aws ec2 describe-key-pairs --key-names "actions_key_arm" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null; then aws ec2 create-key-pair --key-name "actions_key_arm" --query 'KeyName' --output text && echo "Key pair 'actions_key_arm' created in AWS"; else echo "Key pair 'actions_key_arm' already exists"; fi
           sleep 60
-          
+      
       - name: Build and Test arm docker containers with AWS infra
         run: |
           BUILD_FLAGS=""
           TAG=""
           
-          # Build flags and determine the most recent version for TAG
           if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
             BUILD_FLAGS="$BUILD_FLAGS -f"
             TAG="${{ needs.detect-changes.outputs.fp_version }}-arm64"
           fi
-
-          if [ -z "$BUILD_FLAGS" ]; then
+      
+          if [ -z "$BUILD_FLAGS" ]; then 
             echo "No components changed, skipping ARM build"
             exit 0
           fi
           
           if [ -z "$TAG" ]; then
-            TAG="latest-arm64"  # fallback
+            TAG="latest-arm64"
           fi
           
           BUILD_FLAGS=$(echo "$BUILD_FLAGS" | sed 's/^ *//')  
-          
-          cd executions/execution_gp_arm_docker_buildNtester.json
-
+          cd $GITHUB_WORKSPACE/executions
+      
           sed -i -e "s/\${TAG}/$TAG/g" -e "s/\${BUILD_ARGS}/$BUILD_FLAGS/g" \
-            test/execution_gp_arm_docker_buildNtester.json
+            execution_gp_arm_docker_buildNtester.json
           
           echo "Generated execution file:"
-          cat test/execution_gp_arm_docker_buildNtester.json
+          cat execution_gp_arm_docker_buildNtester.json
           
           echo "Building with TAG: $TAG and FLAGS: $BUILD_FLAGS"
-          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://test/execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text); echo "Execution ARN: $execution_arn"; status="RUNNING"; while [ "$status" != "SUCCEEDED" ]; do status=$(aws stepfunctions describe-execution --execution-arn "$execution_arn" --region us-east-1 --query 'status' --output text); echo "Current status: $status"; if [ "$status" == "FAILED" ]; then echo "State machine execution failed!"; exit 1; fi; sleep 5; done; echo "State machine execution succeeded!"
-
+          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform_community/sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text); echo "Execution ARN: $execution_arn"; status="RUNNING"; while [ "$status" != "SUCCEEDED" ]; do status=$(aws stepfunctions describe-execution --execution-arn "$execution_arn" --region us-east-1 --query 'status' --output text); echo "Current status: $status"; if [ "$status" == "FAILED" ]; then echo "State machine execution failed!"; exit 1; fi; sleep 5; done; echo "State machine execution succeeded!"
 
       - name: Tear down infra
         if: always()
         run: |
-          cd ngen-datastream/research_datastream/terraform
+          cd $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform
           terraform destroy -var-file=./test/variables_gitactions_arm.tfvars -auto-approve
           sleep 30
 
