@@ -92,7 +92,7 @@ jobs:
 
     - name: Build docker containers
       run: |
-        TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor .
+        TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
 
     - name: clone ngen
       run: |
