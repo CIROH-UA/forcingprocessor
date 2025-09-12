@@ -10,16 +10,6 @@ services:
       cache_from:
         - awiciroh/forcingprocessor-deps:latest
     image: awiciroh/forcingprocessor-deps:${TAG:-latest}
-
-
-  datastream:
-    build:
-      context: ..
-      dockerfile: docker/Dockerfile.datastream
-      args:
-        TAG_NAME: ${TAG:-latest}
-    image: awiciroh/datastream:${TAG:-latest}
-
   forcingprocessor:
     build:
       context: ..
