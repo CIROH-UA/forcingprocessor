@@ -7,7 +7,7 @@ on:
         required: false
         default: ''
         type: string
-    push:
+  push:
     branches:
       - main
       - fp_workflow
