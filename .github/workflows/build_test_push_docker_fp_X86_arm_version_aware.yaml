@@ -199,7 +199,7 @@ jobs:
           cat execution_gp_arm_docker_buildNtester.json
           
           echo "Building with TAG: $TAG and FLAGS: $BUILD_FLAGS"
-          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform_community/sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text); echo "Execution ARN: $execution_arn"; status="RUNNING"; while [ "$status" != "SUCCEEDED" ]; do status=$(aws stepfunctions describe-execution --execution-arn "$execution_arn" --region us-east-1 --query 'status' --output text); echo "Current status: $status"; if [ "$status" == "FAILED" ]; then echo "State machine execution failed!"; exit 1; fi; sleep 5; done; echo "State machine execution succeeded!"
+          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform_community/sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://$GITHUB_WORKSPACE/executions/execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text); echo "Execution ARN: $execution_arn"; status="RUNNING"; while [ "$status" != "SUCCEEDED" ]; do status=$(aws stepfunctions describe-execution --execution-arn "$execution_arn" --region us-east-1 --query 'status' --output text); echo "Current status: $status"; if [ "$status" == "FAILED" ]; then echo "State machine execution failed!"; exit 1; fi; sleep 5; done; echo "State machine execution succeeded!"
 
       - name: Tear down infra
         if: always()
