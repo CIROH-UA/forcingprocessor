@@ -1,2 +1,2 @@
 forcingprocessor: "test_fp"
-forcingprocessor-deps: "test"
+forcingprocessor-deps: "test_fp"
