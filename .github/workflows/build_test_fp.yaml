@@ -11,10 +11,12 @@ on:
     branches:
       - main
     paths:
+      - 'docker/**' 
       - 'forcingprocessor/**'
       - '!forcingprocessor/README.md'
   pull_request:
-    paths:      
+    paths:
+      - 'docker/**' 
       - 'forcingprocessor/**'
       - '!forcingprocessor/README.md'
 
