@@ -49,7 +49,7 @@ jobs:
 
     - name: Build docker containers
       run: |
-        ARCH=$(uname -m) TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
+        ARCH=x86 TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
         docker images
         TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
 
