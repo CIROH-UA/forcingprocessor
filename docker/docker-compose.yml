@@ -1,15 +1,15 @@
 version: '3.8'
 
 services:
-  datastream-deps:
+  forcingprocessor-deps:
     build:
       context: .
-      dockerfile: Dockerfile.datastream-deps
+      dockerfile: Dockerfile.forcingprocessor-deps
       args:
         ARCH: ${ARCH}
       cache_from:
-        - awiciroh/datastream-deps:latest
-    image: awiciroh/datastream-deps:${TAG:-latest}
+        - awiciroh/forcingprocessor-deps:latest
+    image: awiciroh/forcingprocessor-deps:${TAG:-latest}
 
 
   datastream:
@@ -24,4 +24,6 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.forcingprocessor
+      args:
+        TAG_NAME: ${TAG:-latest}
     image: awiciroh/forcingprocessor:${TAG:-latest}

@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Log file location
-LOG_FILE="/home/ec2-user/ngen-datastream/docker_build_log.txt"
+LOG_FILE="/home/ec2-user/forcingprocessor/docker_build_log.txt"
 
 # Accept tag as command line argument, default to "latest-arm64" if not provided
 TAG="${1:-latest-arm64}"
@@ -22,11 +22,16 @@ if [ -n "$BUILD_ARGS" ]; then
     BUILD_ARGS_CLEAN=$(echo "$BUILD_ARGS" | sed 's/^"//;s/"$//')
     echo "Processing build arguments: $BUILD_ARGS_CLEAN" | tee -a "$LOG_FILE"
     
+    # Check what services to push based on build flags
+    if [[ "$BUILD_ARGS_CLEAN" == *"-e"* ]]; then
+        PUSH_DEPS="yes"
+        echo "Will push forcingprocessor-deps" | tee -a "$LOG_FILE"
+    fi
+    
     if [[ "$BUILD_ARGS_CLEAN" == *"-f"* ]]; then
         PUSH_FP="yes"
         echo "Will push forcingprocessor" | tee -a "$LOG_FILE"
     fi
-    
 else
     echo "No BUILD_ARGS provided - nothing to push" | tee -a "$LOG_FILE"
     exit 0
@@ -37,12 +42,12 @@ if echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-st
     echo "Retagging and pushing images with tag: $TAG" | tee -a "$LOG_FILE"
     
     # Only retag and push services that were built (based on BUILD_ARGS)
-    # if [ "$PUSH_DEPS" = "yes" ]; then
-    #     echo "Retagging and pushing datastream-deps" | tee -a "$LOG_FILE"
-    #     docker tag awiciroh/datastream-deps:latest-arm64 awiciroh/datastream-deps:$TAG 2>&1 | tee -a "$LOG_FILE"
-    #     docker push awiciroh/datastream-deps:$TAG 2>&1 | tee -a "$LOG_FILE"
-    #     docker push awiciroh/datastream-deps:latest-arm64 2>&1 | tee -a "$LOG_FILE"
-    # fi
+    if [ "$PUSH_DEPS" = "yes" ]; then
+        echo "Retagging and pushing forcingprocessor-deps" | tee -a "$LOG_FILE"
+        docker tag awiciroh/forcingprocessor-deps:latest-arm64 awiciroh/forcingprocessor-deps:$TAG 2>&1 | tee -a "$LOG_FILE"
+        docker push awiciroh/forcingprocessor-deps:$TAG 2>&1 | tee -a "$LOG_FILE"
+        docker push awiciroh/forcingprocessor-deps:latest-arm64 2>&1 | tee -a "$LOG_FILE"
+    fi
     
     if [ "$PUSH_FP" = "yes" ]; then
         echo "Retagging and pushing forcingprocessor" | tee -a "$LOG_FILE"
@@ -50,13 +55,6 @@ if echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-st
         docker push awiciroh/forcingprocessor:$TAG 2>&1 | tee -a "$LOG_FILE"
         docker push awiciroh/forcingprocessor:latest-arm64 2>&1 | tee -a "$LOG_FILE"
     fi
-    
-    # if [ "$PUSH_DS" = "yes" ]; then
-    #     echo "Retagging and pushing datastream" | tee -a "$LOG_FILE"
-    #     docker tag awiciroh/datastream:latest-arm64 awiciroh/datastream:$TAG 2>&1 | tee -a "$LOG_FILE"
-    #     docker push awiciroh/datastream:$TAG 2>&1 | tee -a "$LOG_FILE"
-    #     docker push awiciroh/datastream:latest-arm64 2>&1 | tee -a "$LOG_FILE"
-    # fi
     
     echo "Retagging and pushing completed" | tee -a "$LOG_FILE"
     
