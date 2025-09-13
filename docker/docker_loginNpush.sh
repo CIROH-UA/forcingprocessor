@@ -1,7 +1,12 @@
 #!/bin/bash
 
-# Log file location
-LOG_FILE="/home/ec2-user/forcingprocessor/docker_build_log.txt"
+# Log file location - ensure directory exists and is writable
+LOG_DIR="/home/ec2-user/forcingprocessor"
+LOG_FILE="$LOG_DIR/docker_build_log.txt"
+
+# Create log directory and file with proper permissions
+mkdir -p "$LOG_DIR"
+touch "$LOG_FILE" 2>/dev/null || LOG_FILE="/tmp/docker_build_log.txt"
 
 # Accept tag as command line argument, default to "latest-arm64" if not provided
 TAG="${1:-latest-arm64}"
@@ -25,7 +30,8 @@ if [ -n "$BUILD_ARGS" ]; then
     # Check what services to push based on build flags
     if [[ "$BUILD_ARGS_CLEAN" == *"-e"* ]]; then
         PUSH_DEPS="yes"
-        echo "Will push forcingprocessor-deps" | tee -a "$LOG_FILE"
+        PUSH_FP="yes"  # Also push forcingprocessor since workflow builds both
+        echo "Will push forcingprocessor-deps and forcingprocessor" | tee -a "$LOG_FILE"
     fi
     
     if [[ "$BUILD_ARGS_CLEAN" == *"-f"* ]]; then
@@ -42,21 +48,38 @@ if echo "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-st
     echo "Retagging and pushing images with tag: $TAG" | tee -a "$LOG_FILE"
     
     # Only retag and push services that were built (based on BUILD_ARGS)
+    PUSH_SUCCESS=true
+    
     if [ "$PUSH_DEPS" = "yes" ]; then
         echo "Retagging and pushing forcingprocessor-deps" | tee -a "$LOG_FILE"
-        docker tag awiciroh/forcingprocessor-deps:latest-arm64 awiciroh/forcingprocessor-deps:$TAG 2>&1 | tee -a "$LOG_FILE"
-        docker push awiciroh/forcingprocessor-deps:$TAG 2>&1 | tee -a "$LOG_FILE"
-        docker push awiciroh/forcingprocessor-deps:latest-arm64 2>&1 | tee -a "$LOG_FILE"
+        if docker tag awiciroh/forcingprocessor-deps:latest-arm64 awiciroh/forcingprocessor-deps:$TAG 2>&1 | tee -a "$LOG_FILE" && \
+           docker push awiciroh/forcingprocessor-deps:$TAG 2>&1 | tee -a "$LOG_FILE" && \
+           docker push awiciroh/forcingprocessor-deps:latest-arm64 2>&1 | tee -a "$LOG_FILE"; then
+            echo "✓ Successfully pushed forcingprocessor-deps:$TAG" | tee -a "$LOG_FILE"
+        else
+            echo "✗ Failed to push forcingprocessor-deps:$TAG" | tee -a "$LOG_FILE"
+            PUSH_SUCCESS=false
+        fi
     fi
     
     if [ "$PUSH_FP" = "yes" ]; then
         echo "Retagging and pushing forcingprocessor" | tee -a "$LOG_FILE"
-        docker tag awiciroh/forcingprocessor:latest-arm64 awiciroh/forcingprocessor:$TAG 2>&1 | tee -a "$LOG_FILE"
-        docker push awiciroh/forcingprocessor:$TAG 2>&1 | tee -a "$LOG_FILE"
-        docker push awiciroh/forcingprocessor:latest-arm64 2>&1 | tee -a "$LOG_FILE"
+        if docker tag awiciroh/forcingprocessor:latest-arm64 awiciroh/forcingprocessor:$TAG 2>&1 | tee -a "$LOG_FILE" && \
+           docker push awiciroh/forcingprocessor:$TAG 2>&1 | tee -a "$LOG_FILE" && \
+           docker push awiciroh/forcingprocessor:latest-arm64 2>&1 | tee -a "$LOG_FILE"; then
+            echo "✓ Successfully pushed forcingprocessor:$TAG" | tee -a "$LOG_FILE"
+        else
+            echo "✗ Failed to push forcingprocessor:$TAG" | tee -a "$LOG_FILE"
+            PUSH_SUCCESS=false
+        fi
     fi
     
-    echo "Retagging and pushing completed" | tee -a "$LOG_FILE"
+    if [ "$PUSH_SUCCESS" = true ]; then
+        echo "✓ All pushes completed successfully" | tee -a "$LOG_FILE"
+    else
+        echo "✗ Some pushes failed - check logs above" | tee -a "$LOG_FILE"
+        exit 1
+    fi
     
 else
     echo "Docker login failed" | tee -a "$LOG_FILE"
