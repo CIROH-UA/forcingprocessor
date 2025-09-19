@@ -38,13 +38,11 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        pip install -e ./forcingprocessor
+        pip install -e .
         pip install pytest
 
     - name: Test with pytest
       run: |
-        cd forcingprocessor
-        # netcdf already tested
         python -m pytest -vv -k test_csv_output_type
         python -m pytest -vv -k test_parquet_output_type
 

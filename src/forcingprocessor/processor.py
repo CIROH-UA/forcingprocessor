@@ -637,11 +637,11 @@ def prep_ngen_data(conf):
     """
     Primary function to retrieve forcing data and convert it into files that can be ingested into ngen.
 
-    Inputs: forcingprocessor config file https://github.com/CIROH-UA/ngen-datastream/blob/main/forcingprocessor/configs/conf_fp.json
+    Inputs: forcingprocessor config file https://github.com/CIROH-UA/forcingprocessor/blob/main/configs/conf_fp.json
 
     Outputs: ngen forcing files of file type csv, parquet, netcdf, or gzippped tar
 
-    Docs: https://github.com/CIROH-UA/ngen-datastream/blob/main/forcingprocessor/README.md
+    Docs: https://github.com/CIROH-UA/forcingprocessor/blob/main/README.md
     """
 
     t_start = time.perf_counter()
