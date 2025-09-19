@@ -8,14 +8,14 @@ on:
     branches:
       - main
     paths:
-      - 'forcingprocessor/**'
-      - '!forcingprocessor/README.md'
+      - 'src/forcingprocessor/**'
+      - '!src/forcingprocessor/README.md'
   pull_request:
     branches:
       - main    
     paths:      
-      - 'forcingprocessor/**'
-      - '!forcingprocessor/README.md'
+      - 'src/forcingprocessor/**'
+      - '!src/forcingprocessor/README.md'
 
 permissions:
   contents: read

@@ -8,14 +8,14 @@ on:
     branches:
       - main
     paths:
-      - 'forcingprocessor/**'
-      - '!forcingprocessor/README.md'
+      - 'src/forcingprocessor/**'
+      - '!src/forcingprocessor/README.md'
   pull_request:
     branches:
       - main    
     paths:      
-      - 'forcingprocessor/**'
-      - '!forcingprocessor/README.md'
+      - 'src/forcingprocessor/**'
+      - '!src/forcingprocessor/README.md'
 
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
       id: pyver
       run: |
         # Read python_requires from setup.cfg
-        VERSION=$(awk -F'>=' '/^python_requires/ {print $2}' forcingprocessor/setup.cfg | tr -d ' ')
+        VERSION=$(awk -F'>=' '/^python_requires/ {print $2}' setup.cfg | tr -d ' ')
         echo "version=$VERSION" >> $GITHUB_OUTPUT
 
     - name: Set up Python

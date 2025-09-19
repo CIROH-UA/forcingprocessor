@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  forcingprocessor-deps:
+    build:
+      context: .
+      dockerfile: Dockerfile.forcingprocessor-deps
+      args:
+        ARCH: ${ARCH}
+      cache_from:
+        - awiciroh/forcingprocessor-deps:latest
+    image: awiciroh/forcingprocessor-deps:${TAG:-latest}
+  forcingprocessor:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.forcingprocessor
+      args:
+        TAG_NAME: ${TAG:-latest}
+    image: awiciroh/forcingprocessor:${TAG:-latest}
