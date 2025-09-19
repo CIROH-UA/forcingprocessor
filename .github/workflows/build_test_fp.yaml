@@ -7,6 +7,11 @@ on:
         required: false
         default: ''
         type: string
+      ds_tag:
+        description: 'DS_TAG for datastream testing (leave empty for latest)'
+        required: false
+        default: ''
+        type: string
   push:
     branches:
       - main
@@ -61,7 +66,14 @@ jobs:
       run: |
         cd ngen-datastream
         curl -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/palisade.gpkg
-        export DS_TAG=latest-x86 FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.ds_tag }}" ]; then
+          DS_TAG="${{ inputs.ds_tag }}"
+          echo "Using manual input DS_TAG: $DS_TAG"
+        else
+          DS_TAG="latest-x86"
+          echo "Using default DS_TAG: $DS_TAG"
+        fi
+        export DS_TAG=$DS_TAG FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
 
 
   build-test-docker-arm:
@@ -94,10 +106,22 @@ jobs:
             BRANCH_NAME="${{ github.ref_name }}"
             echo "Using current branch: $BRANCH_NAME"
           fi
-          
           # Replace ${BRANCH_NAME} with actual branch name in the file
           cd $GITHUB_WORKSPACE/.github/executions
           sed -i "s#\${BRANCH_NAME}#$BRANCH_NAME#g" test_execution_gp_arm_docker_buildNtester.json
+          cat test_execution_gp_arm_docker_buildNtester.json
+
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.ds_tag }}" ]; then
+            DS_TAG="${{ inputs.ds_tag }}"
+            echo "Using manual input branch: $DS_TAG"
+          else
+            DS_TAG="latest-arm64"
+            echo "Using DS TAG: $DS_TAG"
+          fi
+          
+          # Replace ${DS_TAG} with actual DS_TAG in the file
+          cd $GITHUB_WORKSPACE/.github/executions
+          sed -i "s/\${DS_TAG}/$DS_TAG/g" test_execution_gp_arm_docker_buildNtester.json
           cat test_execution_gp_arm_docker_buildNtester.json
 
 
