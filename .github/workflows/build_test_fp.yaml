@@ -73,6 +73,7 @@ jobs:
           DS_TAG="latest-x86"
           echo "Using default DS_TAG: $DS_TAG"
         fi
+        echo $DS_TAG
         export DS_TAG=$DS_TAG FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
 
 
