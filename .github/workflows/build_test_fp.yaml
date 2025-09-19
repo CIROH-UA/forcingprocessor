@@ -96,7 +96,7 @@ jobs:
           fi
           
           # Replace ${BRANCH_NAME} with actual branch name in the file
-          cd $GITHUB_WORKSPACE/executions
+          cd $GITHUB_WORKSPACE/.github/executions
           sed -i "s#\${BRANCH_NAME}#$BRANCH_NAME#g" test_execution_gp_arm_docker_buildNtester.json
           cat test_execution_gp_arm_docker_buildNtester.json
 
@@ -120,8 +120,8 @@ jobs:
       
       - name: Build and Test arm docker containers with AWS infra
         run: |
-          cat $GITHUB_WORKSPACE/executions/test_execution_gp_arm_docker_buildNtester.json
-          cp $GITHUB_WORKSPACE/executions/test_execution_gp_arm_docker_buildNtester.json $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform/test/execution_gp_arm_docker_buildNtester.json
+          cat $GITHUB_WORKSPACE/.github/executions/test_execution_gp_arm_docker_buildNtester.json
+          cp $GITHUB_WORKSPACE/.github/executions/test_execution_gp_arm_docker_buildNtester.json $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform/test/execution_gp_arm_docker_buildNtester.json
           cd $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform
           execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://test/execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text); echo "Execution ARN: $execution_arn"; status="RUNNING"; while [ "$status" != "SUCCEEDED" ]; do status=$(aws stepfunctions describe-execution --execution-arn "$execution_arn" --region us-east-1 --query 'status' --output text); echo "Current status: $status"; if [ "$status" == "FAILED" ]; then echo "State machine execution failed!"; exit 1; fi; sleep 5; done; echo "State machine execution succeeded!"
       
