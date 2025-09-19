@@ -5,7 +5,7 @@ Forcingprocessor converts National Water Model (NWM) forcing data into Next Gene
 
 ## Install
 ```
-cd /ngen-datastream/forcingprocessor/ && pip install -e .
+cd /forcingprocessor/forcingprocessor/ && pip install -e .
 ```
 
 ## Run the forcingprocessor
