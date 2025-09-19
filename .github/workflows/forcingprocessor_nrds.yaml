@@ -52,5 +52,4 @@ jobs:
 
     - name: Test with pytest
       run: |
-        cd forcingprocessor
         python -m pytest -vv tests/test_nrds_fp.py

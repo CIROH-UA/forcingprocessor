@@ -43,5 +43,4 @@ jobs:
 
     - name: Test with hf2ds
       run: |
-        cd forcingprocessor
         python -m pytest -vv tests/test_hf2ds.py

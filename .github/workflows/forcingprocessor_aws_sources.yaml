@@ -43,7 +43,6 @@ jobs:
 
     - name: Test with pytest
       run: |
-        cd forcingprocessor
         python -m pytest -vv -k test_noaa_nwm_pds_https 
         python -m pytest -vv -k test_noaa_nwm_pds_https_short_range 
         python -m pytest -vv -k test_noaa_nwm_pds_https_medium_range
