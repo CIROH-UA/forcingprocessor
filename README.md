@@ -1,18 +1,21 @@
 # Forcing Processor
-Forcingprocessor converts National Water Model (NWM) forcing data into Next Generation National Water Model (NextGen) forcing data. The motivation for this tool is NWM data is gridded and stored within netCDFs for each forecast hour. Ngen inputs this same forcing data, but in the format of per-catchment csv files that hold time series data. Forcingprocessor is driven by a configuration file that is explained, with an example, in detail below. The config argument accepts an s3 URL.
+Forcingprocessor converts National Water Model (NWM) forcing data into Next Generation National Water Model (NextGen) forcing data. This tool provides the forcing pre-processing for the [NextGen Research DataStream](https://github.com/CIROH-UA/ngen-datastream). 
 
-![forcing_gif](../docs/gifs/T2D_2_TMP_2maboveground_cali.gif)
+The motivation for this tool is NWM data is gridded and stored within netCDFs for each forecast hour. Ngen inputs this same forcing data, but in the format of catchment averaged data time series data. 
+
+![forcing_gif](docs/gifs/T2D_2_TMP_2maboveground_cali.gif)
 
 ## Install
+From root
 ```
-cd forcingprocessor/ && pip install -e .
+pip install -e .
 ```
 
 ## Run the forcingprocessor
 ```
-python ./src/forcingprocessor/processor.py ./configs/conf.json
+python src/forcingprocessor/processor.py ./configs/conf.json
 ```
-Prior to executing the processor, the user will need to obtain a geopackage file to define the spatial domain. [hfsubset](https://github.com/lynker-spatial/hfsubsetCLI) will provide a geopackage which contains a necessary layer, `forcing-weights`, for `processor.py`. The user will define the time domain by generating the forcing filenames for `processor.py` via `nwm_filenames_generator.py`, which is explained [here](#nwm_file).
+Prior to executing the processor, the user will need to obtain a geopackage file to define the spatial domain. The user will define the time domain by generating the forcing filenames for `processor.py` via `nwm_filenames_generator.py`, which is explained [here](#nwm_file). Note that `forcingprocessor` will calcuate weights if not found within the geopackage file.
 
 ## Example `conf.json`
 ```
@@ -56,8 +59,8 @@ Prior to executing the processor, the user will need to obtain a geopackage file
 
 | Field             | Description                       | Required |
 |-------------------|-----------------------------------|----------|
-| storage_type      | Type of storage (local or s3)     | :white_check_mark: |
-| output_path       | Path to write data to. Accepts local path or s3 | :white_check_mark: |
+| storage_type      | Type of storage (local or s3 URI)     | :white_check_mark: |
+| output_path       | Path to write data to. Accepts local path or s3 URI | :white_check_mark: |
 | output_file_type  | List of output file types, e.g. ["tar","parquet","csv","netcdf"]  | :white_check_mark: |
 
 ### 3. Run
