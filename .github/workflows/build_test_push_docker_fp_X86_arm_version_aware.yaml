@@ -124,7 +124,7 @@ jobs:
         cd ngen-datastream
         curl -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/palisade.gpkg
         if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.ds_tag }}" ]; then
-          DS_TAG="${{ inputs.ds_tag }}"
+          DS_TAG="${{ inputs.ds_tag }}-x86"
           echo "Using manual input DS_TAG: $DS_TAG"
         else
           DS_TAG="latest-x86"
@@ -185,7 +185,7 @@ jobs:
           cat execution_gp_arm_docker_buildNtester.json
 
           if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.ds_tag }}" ]; then
-            DS_TAG="${{ inputs.ds_tag }}"
+            DS_TAG="${{ inputs.ds_tag }}-arm64"
             echo "Using manual input branch: $DS_TAG"
           else
             DS_TAG="latest-arm64"
