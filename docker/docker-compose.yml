@@ -11,6 +11,8 @@ services:
       #   - awiciroh/forcingprocessor-deps:latest
     image: awiciroh/forcingprocessor-deps:${TAG:-latest}
   forcingprocessor:
+    depends_on:
+      - forcingprocessor-deps
     build:
       context: ..
       dockerfile: docker/Dockerfile.forcingprocessor

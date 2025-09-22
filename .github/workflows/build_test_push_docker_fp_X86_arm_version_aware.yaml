@@ -113,8 +113,8 @@ jobs:
         # Build deps image first
         ARCH=x86 TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
         docker images
-        # Build main image using the locally built deps
-        TAG=latest-x86 docker compose -f docker/docker-compose.yml build --no-cache forcingprocessor
+        # Build main image using the locally built deps, don't pull from registry
+        TAG=latest-x86 docker compose -f docker/docker-compose.yml build --pull=false forcingprocessor
         docker images
 
     - name: clone ngen
