@@ -32,7 +32,7 @@ jobs:
       fp_version: ${{ steps.changes.outputs.fp_version }}
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
       with:
         fetch-depth: 2
 
@@ -110,9 +110,11 @@ jobs:
 
     - name: Build docker containers
       run: |
+        # Build deps image first
         ARCH=x86 TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
         docker images
-        TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
+        # Build main image using the locally built deps
+        TAG=latest-x86 docker compose -f docker/docker-compose.yml build --no-cache forcingprocessor
         docker images
 
     - name: clone ngen

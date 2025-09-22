@@ -7,8 +7,8 @@ services:
       dockerfile: Dockerfile.forcingprocessor-deps
       args:
         ARCH: ${ARCH}
-      cache_from:
-        - awiciroh/forcingprocessor-deps:latest
+      # cache_from:
+      #   - awiciroh/forcingprocessor-deps:latest
     image: awiciroh/forcingprocessor-deps:${TAG:-latest}
   forcingprocessor:
     build:

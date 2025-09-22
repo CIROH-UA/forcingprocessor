@@ -55,8 +55,10 @@ jobs:
     - name: Build docker containers
       run: |
         docker system prune -a
+        # Build deps image first
         ARCH=x86 TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
-        TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
+        # Build main image using the locally built deps
+        TAG=latest-x86 docker compose -f docker/docker-compose.yml build --no-cache forcingprocessor
 
     - name: clone ngen
       run: |
