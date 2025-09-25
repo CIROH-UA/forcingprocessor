@@ -110,24 +110,30 @@ jobs:
 
     - name: Build and push deps image first
       run: |
-        # Build deps image first
-        ARCH=x86 TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
-        docker images awiciroh/forcingprocessor-deps:latest-x86
+        # Generate unique tag to avoid conflicts and ensure fresh builds
+        UNIQUE_TAG="ubuntu-$(date +%Y%m%d-%H%M%S)-x86"
+        echo "Using unique tag: $UNIQUE_TAG"
+        echo "UNIQUE_TAG=$UNIQUE_TAG" >> $GITHUB_ENV
+        
+        # Build deps image with unique tag
+        ARCH=x86 TAG=$UNIQUE_TAG docker compose -f docker/docker-compose.yml build forcingprocessor-deps
+        docker images awiciroh/forcingprocessor-deps:$UNIQUE_TAG
         
         # Push deps image immediately so it's available in registry
         if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
           VERSION_TAG="${{ needs.detect-changes.outputs.deps_version }}"
-          docker tag awiciroh/forcingprocessor-deps:latest-x86 awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
+          docker tag awiciroh/forcingprocessor-deps:$UNIQUE_TAG awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
           docker push awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
         fi
+        docker push awiciroh/forcingprocessor-deps:$UNIQUE_TAG
         docker push awiciroh/forcingprocessor-deps:latest-x86
-        echo "Deps image pushed to registry"
+        echo "Deps image pushed to registry with tag: $UNIQUE_TAG"
 
     - name: Build main docker image
       run: |
-        # Now build main image - it will pull the latest deps from registry
-        TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
-        docker images awiciroh/forcingprocessor:latest-x86
+        # Now build main image using the unique tag - it will pull the latest deps from registry
+        TAG_NAME=${{ env.UNIQUE_TAG }} docker compose -f docker/docker-compose.yml build forcingprocessor
+        docker images awiciroh/forcingprocessor:${{ env.UNIQUE_TAG }}
 
     - name: clone ngen
       run: |
@@ -144,16 +150,27 @@ jobs:
           DS_TAG="latest-x86"
           echo "Using default DS_TAG: $DS_TAG"
         fi
-        export DS_TAG=$DS_TAG FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
+        FP_TAG="${{ env.UNIQUE_TAG }}"
+        echo "Using FP_TAG: $FP_TAG"
+        export DS_TAG=$DS_TAG FP_TAG=$FP_TAG && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
 
     - name: Push main docker image
       run: |
-        # Push main image only (deps already pushed earlier)
+        # Push main image with unique tag and also tag as latest
+        UNIQUE_TAG="${{ env.UNIQUE_TAG }}"
+        
+        # Tag with latest for compatibility
+        docker tag awiciroh/forcingprocessor:$UNIQUE_TAG awiciroh/forcingprocessor:latest-x86
+        
+        # Push main image with version tag if needed
         if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
           VERSION_TAG="${{ needs.detect-changes.outputs.fp_version }}"
-          docker tag awiciroh/forcingprocessor:latest-x86 awiciroh/forcingprocessor:${VERSION_TAG}-x86
+          docker tag awiciroh/forcingprocessor:$UNIQUE_TAG awiciroh/forcingprocessor:${VERSION_TAG}-x86
           docker push awiciroh/forcingprocessor:${VERSION_TAG}-x86
         fi
+        
+        # Push both unique tag and latest
+        docker push awiciroh/forcingprocessor:$UNIQUE_TAG
         docker push awiciroh/forcingprocessor:latest-x86
 
 
