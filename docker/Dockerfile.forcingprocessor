@@ -1,6 +1,5 @@
 ARG TAG_NAME=latest-x86
 FROM awiciroh/forcingprocessor-deps:${TAG_NAME} AS forcingprocessor_base
-RUN echo "Building with TAG_NAME: ${TAG_NAME}"
 COPY . /forcingprocessor/
 RUN pip3 install -e /forcingprocessor && \
     groupadd -r mygroup && useradd -r -g mygroup myuser && \
