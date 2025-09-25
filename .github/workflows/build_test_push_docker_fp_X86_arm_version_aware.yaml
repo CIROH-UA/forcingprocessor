@@ -132,8 +132,17 @@ jobs:
     - name: Build main docker image
       run: |
         # Now build main image using the unique tag - it will pull the latest deps from registry
-        TAG_NAME=${{ env.UNIQUE_TAG }} docker compose -f docker/docker-compose.yml build forcingprocessor
-        docker images awiciroh/forcingprocessor:${{ env.UNIQUE_TAG }}
+        UNIQUE_TAG="${{ env.UNIQUE_TAG }}"
+        echo "UNIQUE_TAG from environment: $UNIQUE_TAG"
+        echo "Building main image with TAG=$UNIQUE_TAG and TAG_NAME=$UNIQUE_TAG"
+        
+        # Verify the deps image exists in registry before building main
+        echo "Verifying deps image exists in registry:"
+        docker pull awiciroh/forcingprocessor-deps:$UNIQUE_TAG || echo "Could not pull deps image"
+        
+        # Set both TAG and TAG_NAME environment variables for docker-compose
+        TAG=$UNIQUE_TAG TAG_NAME=$UNIQUE_TAG docker compose -f docker/docker-compose.yml build forcingprocessor
+        docker images awiciroh/forcingprocessor:$UNIQUE_TAG
 
     - name: clone ngen
       run: |
