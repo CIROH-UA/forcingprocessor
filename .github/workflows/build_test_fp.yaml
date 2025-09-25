@@ -52,13 +52,42 @@ jobs:
     #   run: |
     #     curl -L -O https://github.com/lynker-spatial/hfsubsetCLI/releases/download/v1.1.0/hfsubset-v1.1.0-linux_amd64.tar.gz && tar -xzvf hfsubset-v1.1.0-linux_amd64.tar.gz && sudo mv ./hfsubset /usr/bin/hfsubset && sudo apt-get update && sudo apt-get install git pip pigz -y        
 
+    - name: Login to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        username: ${{ secrets.DOCKERHUB_USERNAME }}
+        password: ${{ secrets.DOCKERHUB_TOKEN }}
+
     - name: Build docker containers
       run: |
-        docker system prune -a
-        # Build deps image first
-        ARCH=x86 TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
-        # Build main image using the locally built deps, don't pull from registry
-        TAG=latest-x86 docker compose -f docker/docker-compose.yml build --pull=false forcingprocessor
+        # Generate unique tag to ensure fresh builds
+        UNIQUE_TAG="ubuntu-$(date +%Y%m%d-%H%M%S)-x86"
+        echo "Using unique tag: $UNIQUE_TAG"
+        echo "UNIQUE_TAG=$UNIQUE_TAG" >> $GITHUB_ENV
+        
+        # Build and push deps image first with unique tag
+        cd docker
+        docker build -f Dockerfile.forcingprocessor-deps \
+          --build-arg ARCH=x86 \
+          --no-cache \
+          -t awiciroh/forcingprocessor-deps:$UNIQUE_TAG .
+        
+        # Push deps image immediately so it's available in registry
+        docker push awiciroh/forcingprocessor-deps:$UNIQUE_TAG
+        echo "Deps image pushed to registry with tag: $UNIQUE_TAG"
+        
+        # Build main image using the unique tag
+        cd ..
+        docker build -f docker/Dockerfile.forcingprocessor \
+          --build-arg TAG_NAME=$UNIQUE_TAG \
+          --no-cache \
+          -t awiciroh/forcingprocessor:$UNIQUE_TAG .
+        
+        # Tag as latest-x86 for compatibility
+        docker tag awiciroh/forcingprocessor:$UNIQUE_TAG awiciroh/forcingprocessor:latest-x86
+        
+        echo "Built images:"
+        docker images | grep forcingprocessor
 
     - name: clone ngen
       run: |
@@ -75,8 +104,12 @@ jobs:
           DS_TAG="latest-x86"
           echo "Using default DS_TAG: $DS_TAG"
         fi
-        echo $DS_TAG
-        export DS_TAG=$DS_TAG FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
+        
+        # Use the unique tag for FP_TAG
+        FP_TAG="${{ env.UNIQUE_TAG }}"
+        echo "Using DS_TAG: $DS_TAG"
+        echo "Using FP_TAG: $FP_TAG"
+        export DS_TAG=$DS_TAG FP_TAG=$FP_TAG && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
 
 
   build-test-docker-arm:
