@@ -115,8 +115,13 @@ jobs:
         echo "Using unique tag: $UNIQUE_TAG"
         echo "UNIQUE_TAG=$UNIQUE_TAG" >> $GITHUB_ENV
         
+        # Set environment variables for docker-compose
+        export ARCH=x86
+        export TAG=$UNIQUE_TAG
+        echo "Building deps with ARCH=$ARCH, TAG=$TAG"
+        
         # Build deps image with unique tag
-        ARCH=x86 TAG=$UNIQUE_TAG docker compose -f docker/docker-compose.yml build forcingprocessor-deps
+        docker compose -f docker/docker-compose.yml build forcingprocessor-deps
         docker images awiciroh/forcingprocessor-deps:$UNIQUE_TAG
         
         # Push deps image immediately so it's available in registry
@@ -134,7 +139,6 @@ jobs:
         # Now build main image using the unique tag - it will pull the latest deps from registry
         UNIQUE_TAG="${{ env.UNIQUE_TAG }}"
         echo "UNIQUE_TAG from environment: $UNIQUE_TAG"
-        echo "Building main image with TAG=$UNIQUE_TAG and TAG_NAME=$UNIQUE_TAG"
         
         # Verify the deps image exists in registry before building main
         echo "Verifying deps image exists in registry:"
@@ -142,14 +146,18 @@ jobs:
         
         # Set environment variables for docker-compose (including ARCH to avoid warning)
         export TAG=$UNIQUE_TAG
-        export TAG_NAME=$UNIQUE_TAG  
         export ARCH=x86
         
         echo "Environment variables set:"
         echo "TAG=$TAG"
-        echo "TAG_NAME=$TAG_NAME" 
         echo "ARCH=$ARCH"
         
+        # Debug: check what docker-compose will use
+        echo "Docker-compose will use:"
+        echo "TAG variable: $(echo $TAG)"
+        docker compose -f docker/docker-compose.yml config | grep -A 5 -B 5 args
+        
+        echo "Building main image with TAG=$TAG (which becomes TAG_NAME in Dockerfile)"
         # Build using docker-compose
         docker compose -f docker/docker-compose.yml build forcingprocessor
         docker images awiciroh/forcingprocessor:$UNIQUE_TAG
