@@ -108,14 +108,26 @@ jobs:
     #   run: |
     #     curl -L -O https://github.com/lynker-spatial/hfsubsetCLI/releases/download/v1.1.0/hfsubset-v1.1.0-linux_amd64.tar.gz && tar -xzvf hfsubset-v1.1.0-linux_amd64.tar.gz && sudo mv ./hfsubset /usr/bin/hfsubset && sudo apt-get update && sudo apt-get install git pip pigz -y        
 
-    - name: Build docker containers
+    - name: Build and push deps image first
       run: |
         # Build deps image first
         ARCH=x86 TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
-        docker images
-        # Build main image using the locally built deps, don't pull from registry
-        TAG=latest-x86 docker compose -f docker/docker-compose.yml build --pull=false forcingprocessor
-        docker images
+        docker images awiciroh/forcingprocessor-deps:latest-x86
+        
+        # Push deps image immediately so it's available in registry
+        if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
+          VERSION_TAG="${{ needs.detect-changes.outputs.deps_version }}"
+          docker tag awiciroh/forcingprocessor-deps:latest-x86 awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
+          docker push awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
+        fi
+        docker push awiciroh/forcingprocessor-deps:latest-x86
+        echo "Deps image pushed to registry"
+
+    - name: Build main docker image
+      run: |
+        # Now build main image - it will pull the latest deps from registry
+        TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
+        docker images awiciroh/forcingprocessor:latest-x86
 
     - name: clone ngen
       run: |
@@ -134,20 +146,15 @@ jobs:
         fi
         export DS_TAG=$DS_TAG FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
 
-    - name: Push docker containers
+    - name: Push main docker image
       run: |
-        if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
-          VERSION_TAG="${{ needs.detect-changes.outputs.deps_version }}"
-          docker tag awiciroh/forcingprocessor-deps:latest-x86 awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
-          docker push awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
-          docker push awiciroh/forcingprocessor-deps:latest-x86
-        fi
+        # Push main image only (deps already pushed earlier)
         if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
           VERSION_TAG="${{ needs.detect-changes.outputs.fp_version }}"
           docker tag awiciroh/forcingprocessor:latest-x86 awiciroh/forcingprocessor:${VERSION_TAG}-x86
           docker push awiciroh/forcingprocessor:${VERSION_TAG}-x86
-          docker push awiciroh/forcingprocessor:latest-x86
         fi
+        docker push awiciroh/forcingprocessor:latest-x86
 
 
   build-test-push-docker-arm:
