@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   forcingprocessor-deps:
     build:
@@ -7,10 +5,12 @@ services:
       dockerfile: Dockerfile.forcingprocessor-deps
       args:
         ARCH: ${ARCH}
-      cache_from:
-        - awiciroh/forcingprocessor-deps:latest
+      # cache_from:
+      #   - awiciroh/forcingprocessor-deps:latest
     image: awiciroh/forcingprocessor-deps:${TAG:-latest}
   forcingprocessor:
+    depends_on:
+      - forcingprocessor-deps
     build:
       context: ..
       dockerfile: docker/Dockerfile.forcingprocessor
