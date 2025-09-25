@@ -140,8 +140,18 @@ jobs:
         echo "Verifying deps image exists in registry:"
         docker pull awiciroh/forcingprocessor-deps:$UNIQUE_TAG || echo "Could not pull deps image"
         
-        # Set both TAG and TAG_NAME environment variables for docker-compose
-        TAG=$UNIQUE_TAG TAG_NAME=$UNIQUE_TAG docker compose -f docker/docker-compose.yml build forcingprocessor
+        # Set environment variables for docker-compose (including ARCH to avoid warning)
+        export TAG=$UNIQUE_TAG
+        export TAG_NAME=$UNIQUE_TAG  
+        export ARCH=x86
+        
+        echo "Environment variables set:"
+        echo "TAG=$TAG"
+        echo "TAG_NAME=$TAG_NAME" 
+        echo "ARCH=$ARCH"
+        
+        # Build using docker-compose
+        docker compose -f docker/docker-compose.yml build forcingprocessor
         docker images awiciroh/forcingprocessor:$UNIQUE_TAG
 
     - name: clone ngen
