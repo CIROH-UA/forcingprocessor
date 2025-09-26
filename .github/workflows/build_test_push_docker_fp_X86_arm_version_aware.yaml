@@ -132,6 +132,18 @@ jobs:
         fi
         export DS_TAG=$DS_TAG FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
 
+    - name: Run Trivy vulnerability scan - deps
+      if: needs.detect-changes.outputs.build_deps == 'true'
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
+
+    - name: Run Trivy vulnerability scan - fp
+      if: needs.detect-changes.outputs.build_fp == 'true'
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor:latest-x86'
+
     - name: Push docker containers
       run: |
         if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
