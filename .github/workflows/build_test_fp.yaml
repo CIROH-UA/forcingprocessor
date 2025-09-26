@@ -16,6 +16,7 @@ on:
     branches:
       - main
       - fp_workflow
+      - trivy_scan
     paths:
       - 'docker/**' 
       - 'src/forcingprocessor/**'
