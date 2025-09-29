@@ -24,10 +24,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - name: Set up Python 3.10
+
+    - name: Extract Python version from setup.cfg
+      id: pyver
+      run: |
+        # Read python_requires from setup.cfg
+        VERSION=$(awk -F'>=' '/^python_requires/ {print $2}' setup.cfg | tr -d ' ')
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+
+    - name: Set up Python
       uses: actions/setup-python@v5
       with:
-        python-version: "3.10"
+        python-version: ${{ steps.pyver.outputs.version }}
 
     - name: Configure AWS
       run: |
