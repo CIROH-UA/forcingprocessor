@@ -1,5 +1,4 @@
-name: Build, Test, and Push Datastream Docker Containers on X86 and ARM (Version Aware)
-
+name: Build and Test Forcing Processor with Datastream
 on:
   workflow_dispatch:
     inputs:
@@ -14,73 +13,26 @@ on:
         default: ''
         type: string
   push:
-    # branches:
-    #   - main
+    branches:
+      - main
+      - fp_workflow
+      - trivy_scan
     paths:
-      - 'versions.yml'
+      - 'docker/**' 
+      - 'src/forcingprocessor/**'
+      - '!src/forcingprocessor/README.md'
+  pull_request:
+    paths:
+      - 'docker/**' 
+      - 'src/forcingprocessor/**'
+      - '!src/forcingprocessor/README.md'
 
 permissions:
-  contents: read   
+  contents: read
+  security-events: write  # Required for uploading SARIF results
 
 jobs:
-  detect-changes:
-    runs-on: ubuntu-latest
-    outputs:
-      build_deps: ${{ steps.changes.outputs.build_deps }}
-      deps_version: ${{ steps.changes.outputs.deps_version }}
-      build_fp: ${{ steps.changes.outputs.build_fp }}
-      fp_version: ${{ steps.changes.outputs.fp_version }}
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 2
-
-    - name: Install yq
-      run: |
-        sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
-        sudo chmod +x /usr/local/bin/yq
-
-    - name: Detect version changes
-      id: changes
-      shell: bash
-      run: |
-        set -euo pipefail
-    
-        # Current versions (raw)
-        CURRENT_DEPS=$(yq -r e '."forcingprocessor-deps"' versions.yml)
-        CURRENT_FP=$(yq -r e '.forcingprocessor' versions.yml)
-    
-        # Ensure previous commit and file exist
-        if git rev-parse HEAD~1 >/dev/null 2>&1 && git cat-file -e HEAD~1:versions.yml 2>/dev/null; then
-          git show HEAD~1:versions.yml > previous_versions.yml
-        else
-          printf "forcingprocessor-deps: '0.0.0'\nforcingprocessor: '0.0.0'\n" > previous_versions.yml
-        fi
-    
-        PREVIOUS_DEPS=$(yq -r e '."forcingprocessor-deps"' previous_versions.yml)
-        PREVIOUS_FP=$(yq -r e '.forcingprocessor' previous_versions.yml)
-    
-        # Check what changed and set outputs
-        if [ "$CURRENT_DEPS" != "$PREVIOUS_DEPS" ]; then
-          echo "forcingprocessor-deps changed: $PREVIOUS_DEPS -> $CURRENT_DEPS"
-          echo "build_deps=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "build_deps=false" >> "$GITHUB_OUTPUT"
-        fi
-        echo "deps_version=$CURRENT_DEPS" >> "$GITHUB_OUTPUT"
-    
-        if [ "$CURRENT_FP" != "$PREVIOUS_FP" ]; then
-          echo "forcingprocessor changed: $PREVIOUS_FP -> $CURRENT_FP"
-          echo "build_fp=true" >> "$GITHUB_OUTPUT"
-        else
-          echo "build_fp=false" >> "$GITHUB_OUTPUT"
-        fi
-        echo "fp_version=$CURRENT_FP" >> "$GITHUB_OUTPUT"
-    
-
-  build-test-push-docker-x86:
-    needs: [detect-changes]
+  build-test-docker-x86:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
@@ -98,39 +50,56 @@ jobs:
         aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws configure set region us-east-1
 
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{ secrets.DOCKERHUB_USERNAME }}
-        password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-    # - name: Install packages for datastream
-    #   run: |
-    #     curl -L -O https://github.com/lynker-spatial/hfsubsetCLI/releases/download/v1.1.0/hfsubset-v1.1.0-linux_amd64.tar.gz && tar -xzvf hfsubset-v1.1.0-linux_amd64.tar.gz && sudo mv ./hfsubset /usr/bin/hfsubset && sudo apt-get update && sudo apt-get install git pip pigz -y        
-
     - name: Build docker containers
       run: |
+        docker system prune -a
         ARCH=x86 TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
-        docker images
         TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
-        docker images
 
-    - name: Run Trivy vulnerability scan - deps
-      if: needs.detect-changes.outputs.build_deps == 'true'
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
-
-    - name: Run Trivy vulnerability scan - fp
-      if: needs.detect-changes.outputs.build_fp == 'true'
-      uses: aquasecurity/trivy-action@0.28.0
-      with:
-        image-ref: 'awiciroh/forcingprocessor:latest-x86'
-        
     - name: clone ngen
       run: |
         git clone --single-branch --branch main --depth 1 https://github.com/CIROH-UA/ngen-datastream.git
   
+    - name: Run Trivy vulnerability scan - deps
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
+        format: 'sarif'
+        output: 'trivy-deps-x86-results.sarif'
+        severity: 'CRITICAL'
+
+    - name: Upload Trivy scan results - deps
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-deps-x86-results.sarif'
+        category: 'trivy-deps-x86'
+
+    - name: Run Trivy vulnerability scan - fp
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor:latest-x86'
+        format: 'sarif'
+        output: 'trivy-fp-x86-results.sarif'
+        severity: 'CRITICAL'
+
+    - name: Upload Trivy scan results - fp
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-fp-x86-results.sarif'
+        category: 'trivy-fp-x86'
+
+    - name: Save Trivy results as artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: trivy-results-x86
+        path: |
+          trivy-deps-x86-results.sarif
+          trivy-fp-x86-results.sarif
+        retention-days: 90
+
     - name: Prepare and test docker containers
       run: |
         cd ngen-datastream
@@ -142,28 +111,11 @@ jobs:
           DS_TAG="latest-x86"
           echo "Using default DS_TAG: $DS_TAG"
         fi
+        echo $DS_TAG
         export DS_TAG=$DS_TAG FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
 
-
-
-    - name: Push docker containers
-      run: |
-        if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
-          VERSION_TAG="${{ needs.detect-changes.outputs.deps_version }}"
-          docker tag awiciroh/forcingprocessor-deps:latest-x86 awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
-          docker push awiciroh/forcingprocessor-deps:${VERSION_TAG}-x86
-          docker push awiciroh/forcingprocessor-deps:latest-x86
-        fi
-        if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
-          VERSION_TAG="${{ needs.detect-changes.outputs.fp_version }}"
-          docker tag awiciroh/forcingprocessor:latest-x86 awiciroh/forcingprocessor:${VERSION_TAG}-x86
-          docker push awiciroh/forcingprocessor:${VERSION_TAG}-x86
-          docker push awiciroh/forcingprocessor:latest-x86
-        fi
-
-
-  build-test-push-docker-arm:
-    needs: [detect-changes, build-test-push-docker-x86]
+  build-test-docker-arm:
+    needs: [build-test-docker-x86]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -192,11 +144,10 @@ jobs:
             BRANCH_NAME="${{ github.ref_name }}"
             echo "Using current branch: $BRANCH_NAME"
           fi
-          
           # Replace ${BRANCH_NAME} with actual branch name in the file
           cd $GITHUB_WORKSPACE/.github/executions
-          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" execution_gp_arm_docker_buildNtester.json
-          cat execution_gp_arm_docker_buildNtester.json
+          sed -i "s#\${BRANCH_NAME}#$BRANCH_NAME#g" test_execution_gp_arm_docker_buildNtester.json
+          cat test_execution_gp_arm_docker_buildNtester.json
 
           if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.ds_tag }}" ]; then
             DS_TAG="${{ inputs.ds_tag }}-arm64"
@@ -205,12 +156,11 @@ jobs:
             DS_TAG="latest-arm64"
             echo "Using DS TAG: $DS_TAG"
           fi
+          
           # Replace ${DS_TAG} with actual DS_TAG in the file
           cd $GITHUB_WORKSPACE/.github/executions
-          sed -i "s/\${DS_TAG}/$DS_TAG/g" execution_gp_arm_docker_buildNtester.json
-          cat execution_gp_arm_docker_buildNtester.json
-
-
+          sed -i "s/\${DS_TAG}/$DS_TAG/g" test_execution_gp_arm_docker_buildNtester.json
+          cat test_execution_gp_arm_docker_buildNtester.json
 
       - name: Build AWS Infra
         run: |
@@ -231,77 +181,105 @@ jobs:
       
       - name: Build and Test arm docker containers with AWS infra
         run: |
-          BUILD_FLAGS=""
-          TAG=""
-          
-          if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
-            BUILD_FLAGS="$BUILD_FLAGS -f"
-            TAG="${{ needs.detect-changes.outputs.fp_version }}-arm64"
-          fi
-          if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
-            BUILD_FLAGS="$BUILD_FLAGS -e"
-            TAG="${{ needs.detect-changes.outputs.deps_version }}-arm64"
-          fi
-          if [ -z "$BUILD_FLAGS" ]; then 
-            echo "No components changed, skipping ARM build"
-            exit 0
-          fi
-          
-          if [ -z "$TAG" ]; then
-            TAG="latest-arm64"
-          fi
-          
-          BUILD_FLAGS=$(echo "$BUILD_FLAGS" | sed 's/^ *//')  
-      
-          sed -i -e "s/\${TAG}/$TAG/g" -e "s/\${BUILD_ARGS}/$BUILD_FLAGS/g" \
-            $GITHUB_WORKSPACE/.github/executions/execution_gp_arm_docker_buildNtester.json
-          
-          echo "Generated execution file:"
-          cat $GITHUB_WORKSPACE/.github/executions/execution_gp_arm_docker_buildNtester.json
-          cp $GITHUB_WORKSPACE/.github/executions/execution_gp_arm_docker_buildNtester.json $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform/test/execution_gp_arm_docker_buildNtester.json
+          cat $GITHUB_WORKSPACE/.github/executions/test_execution_gp_arm_docker_buildNtester.json
+          cp $GITHUB_WORKSPACE/.github/executions/test_execution_gp_arm_docker_buildNtester.json $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform/test/execution_gp_arm_docker_buildNtester.json
           cd $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform
-          echo "Building with TAG: $TAG and FLAGS: $BUILD_FLAGS"
           execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://test/execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text); echo "Execution ARN: $execution_arn"; status="RUNNING"; while [ "$status" != "SUCCEEDED" ]; do status=$(aws stepfunctions describe-execution --execution-arn "$execution_arn" --region us-east-1 --query 'status' --output text); echo "Current status: $status"; if [ "$status" == "FAILED" ]; then echo "State machine execution failed!"; exit 1; fi; sleep 5; done; echo "State machine execution succeeded!"
       
+      - name: Get EC2 instance ID for Trivy scan
+        id: get-instance
+        run: |
+          INSTANCE_ID=$(aws ec2 describe-instances \
+            --filters "Name=tag:Name,Values=datastream_github_actions_arm" "Name=instance-state-name,Values=running" \
+            --query 'Reservations[0].Instances[0].InstanceId' \
+            --output text \
+            --region us-east-1)
+          echo "instance_id=$INSTANCE_ID" >> $GITHUB_OUTPUT
+          echo "Found instance: $INSTANCE_ID"
+
+      - name: Run Trivy scan on ARM images via SSM
+        run: |
+          INSTANCE_ID="${{ steps.get-instance.outputs.instance_id }}"
+          
+          # Install Trivy on the ARM instance
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=["sudo apt-get update && sudo apt-get install -y wget apt-transport-https gnupg lsb-release","wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -","echo \"deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main\" | sudo tee -a /etc/apt/sources.list.d/trivy.list","sudo apt-get update && sudo apt-get install -y trivy"]' \
+            --region us-east-1 \
+            --query 'Command.CommandId' \
+            --output text)
+          
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --region us-east-1
+          
+          # Scan deps image
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=["trivy image --format sarif --output /tmp/trivy-deps-arm-results.sarif --severity CRITICAL awiciroh/forcingprocessor-deps:latest-arm64"]' \
+            --region us-east-1 \
+            --query 'Command.CommandId' \
+            --output text)
+          
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --region us-east-1
+          
+          # Scan fp image
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=["trivy image --format sarif --output /tmp/trivy-fp-arm-results.sarif --severity CRITICAL awiciroh/forcingprocessor:latest-arm64"]' \
+            --region us-east-1 \
+            --query 'Command.CommandId' \
+            --output text)
+          
+          aws ssm wait command-executed --command-id "$COMMAND_ID" --instance-id "$INSTANCE_ID" --region us-east-1
+
+      - name: Download ARM Trivy results
+        run: |
+          INSTANCE_ID="${{ steps.get-instance.outputs.instance_id }}"
+          
+          # Copy results using SSM
+          UPLOAD_COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "$INSTANCE_ID" \
+            --document-name "AWS-RunShellScript" \
+            --parameters 'commands=["aws s3 cp /tmp/trivy-deps-arm-results.sarif s3://trivy-scan-results-ua/trivy-results/","aws s3 cp /tmp/trivy-fp-arm-results.sarif s3://trivy-scan-results-ua/trivy-results/"]' \
+            --region us-east-1 \
+            --query 'Command.CommandId' \
+            --output text)
+
+          # Wait for upload to complete
+          aws ssm wait command-executed --command-id "$UPLOAD_COMMAND_ID" --instance-id "$INSTANCE_ID" --region us-east-1
+
+          # Download from S3
+          mkdir -p trivy-arm-results
+          aws s3 cp s3://trivy-scan-results-ua/trivy-results/trivy-deps-arm-results.sarif ./trivy-arm-results/
+          aws s3 cp s3://trivy-scan-results-ua/trivy-results/trivy-fp-arm-results.sarif ./trivy-arm-results/
+
+      - name: Upload Trivy scan results - ARM deps
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-arm-results/trivy-deps-arm-results.sarif'
+          category: 'trivy-deps-arm64'
+
+      - name: Upload Trivy scan results - ARM fp
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: 'trivy-arm-results/trivy-fp-arm-results.sarif'
+          category: 'trivy-fp-arm64'
+
+      - name: Save ARM Trivy results as artifacts
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-results-arm64
+          path: trivy-arm-results/
+          retention-days: 90
+
       - name: Tear down infra
         if: always()
         run: |
           cd $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform
           terraform destroy -var-file=./test/variables_gitactions_arm.tfvars -auto-approve
           sleep 30
-
-  create-manifest:
-    name: Create and Push Manifest
-    needs: [detect-changes, build-test-push-docker-arm]
-    runs-on: ubuntu-latest
-    steps:
-      - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
-      - name: Create and push manifest forcingprocessor-deps
-        if: needs.detect-changes.outputs.build_deps == 'true'
-        run: |
-          docker manifest create awiciroh/forcingprocessor-deps:${{ needs.detect-changes.outputs.deps_version }} \
-            --amend awiciroh/forcingprocessor-deps:${{ needs.detect-changes.outputs.deps_version }}-x86 \
-            --amend awiciroh/forcingprocessor-deps:${{ needs.detect-changes.outputs.deps_version }}-arm64
-          docker manifest push awiciroh/forcingprocessor-deps:${{ needs.detect-changes.outputs.deps_version }}
-
-          docker manifest create awiciroh/forcingprocessor-deps:latest \
-            --amend awiciroh/forcingprocessor-deps:latest-x86 \
-            --amend awiciroh/forcingprocessor-deps:latest-arm64
-          docker manifest push awiciroh/forcingprocessor-deps:latest
-
-      - name: Create and push manifest forcingprocessor
-        if: needs.detect-changes.outputs.build_fp == 'true'
-        run: |
-          docker manifest create awiciroh/forcingprocessor:${{ needs.detect-changes.outputs.fp_version }} \
-            --amend awiciroh/forcingprocessor:${{ needs.detect-changes.outputs.fp_version }}-x86 \
-            --amend awiciroh/forcingprocessor:${{ needs.detect-changes.outputs.fp_version }}-arm64
-          docker manifest push awiciroh/forcingprocessor:${{ needs.detect-changes.outputs.fp_version }}
-
-          docker manifest create awiciroh/forcingprocessor:latest \
-            --amend awiciroh/forcingprocessor:latest-x86 \
-            --amend awiciroh/forcingprocessor:latest-arm64
-          docker manifest push awiciroh/forcingprocessor:latest

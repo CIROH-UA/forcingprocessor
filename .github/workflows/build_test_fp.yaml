@@ -67,11 +67,42 @@ jobs:
       uses: aquasecurity/trivy-action@0.28.0
       with:
         image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
+        format: 'sarif'
+        output: 'trivy-deps-x86-results.sarif'
+        severity: 'CRITICAL'
+
+    - name: Upload Trivy scan results - deps
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-deps-x86-results.sarif'
+        category: 'trivy-deps-x86'
 
     - name: Run Trivy vulnerability scan - fp
       uses: aquasecurity/trivy-action@0.28.0
       with:
         image-ref: 'awiciroh/forcingprocessor:latest-x86'
+        format: 'sarif'
+        output: 'trivy-fp-x86-results.sarif'
+        severity: 'CRITICAL'
+
+    - name: Upload Trivy scan results - fp
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-fp-x86-results.sarif'
+        category: 'trivy-fp-x86'
+
+    - name: Save Trivy results as artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: trivy-results-x86
+        path: |
+          trivy-deps-x86-results.sarif
+          trivy-fp-x86-results.sarif
+        retention-days: 90
+
     - name: Prepare and test docker containers
       run: |
         cd ngen-datastream
