@@ -69,7 +69,7 @@ jobs:
         image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
         format: 'sarif'
         output: 'trivy-deps-x86-results.sarif'
-        severity: 'CRITICAL'
+        severity: 'CRITICAL,HIGH'
 
     - name: Run Trivy vulnerability scan - deps (JSON for artifacts)
       uses: aquasecurity/trivy-action@0.28.0
@@ -77,7 +77,7 @@ jobs:
         image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
         format: 'json'
         output: 'trivy-deps-x86-results.json'
-        severity: 'CRITICAL'
+        severity: 'CRITICAL,HIGH'
 
     - name: Upload Trivy scan results - deps
       uses: github/codeql-action/upload-sarif@v3
@@ -92,7 +92,7 @@ jobs:
         image-ref: 'awiciroh/forcingprocessor:latest-x86'
         format: 'sarif'
         output: 'trivy-fp-x86-results.sarif'
-        severity: 'CRITICAL'
+        severity: 'CRITICAL,HIGH'
 
     - name: Run Trivy vulnerability scan - fp (JSON for artifacts)
       uses: aquasecurity/trivy-action@0.28.0
@@ -100,7 +100,7 @@ jobs:
         image-ref: 'awiciroh/forcingprocessor:latest-x86'
         format: 'json'
         output: 'trivy-fp-x86-results.json'
-        severity: 'CRITICAL'
+        severity: 'CRITICAL,HIGH'
 
     - name: Upload Trivy scan results - fp
       uses: github/codeql-action/upload-sarif@v3

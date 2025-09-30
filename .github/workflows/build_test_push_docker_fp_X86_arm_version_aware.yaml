@@ -66,7 +66,7 @@ jobs:
         image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
         format: 'sarif'
         output: 'trivy-deps-x86-results.sarif'
-        severity: 'CRITICAL'
+        severity: 'CRITICAL,HIGH'
 
     - name: Run Trivy vulnerability scan - deps (JSON for artifacts)
       uses: aquasecurity/trivy-action@0.28.0
@@ -74,7 +74,7 @@ jobs:
         image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
         format: 'json'
         output: 'trivy-deps-x86-results.json'
-        severity: 'CRITICAL'
+        severity: 'CRITICAL,HIGH'
 
     - name: Upload Trivy scan results - deps
       uses: github/codeql-action/upload-sarif@v3
@@ -89,7 +89,7 @@ jobs:
         image-ref: 'awiciroh/forcingprocessor:latest-x86'
         format: 'sarif'
         output: 'trivy-fp-x86-results.sarif'
-        severity: 'CRITICAL'
+        severity: 'CRITICAL,HIGH'
 
     - name: Run Trivy vulnerability scan - fp (JSON for artifacts)
       uses: aquasecurity/trivy-action@0.28.0
@@ -97,7 +97,7 @@ jobs:
         image-ref: 'awiciroh/forcingprocessor:latest-x86'
         format: 'json'
         output: 'trivy-fp-x86-results.json'
-        severity: 'CRITICAL'
+        severity: 'CRITICAL,HIGH'
 
     - name: Upload Trivy scan results - fp
       uses: github/codeql-action/upload-sarif@v3
@@ -234,7 +234,7 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["trivy image --format sarif --output /tmp/trivy-deps-arm-results.sarif --severity CRITICAL awiciroh/forcingprocessor-deps:latest-arm64"]' \
+            --parameters 'commands=["trivy image --format sarif --output /tmp/trivy-deps-arm-results.sarif --severity CRITICAL,HIGH awiciroh/forcingprocessor-deps:latest-arm64"]' \
             --region us-east-1 \
             --query 'Command.CommandId' \
             --output text)
@@ -245,7 +245,7 @@ jobs:
           COMMAND_ID=$(aws ssm send-command \
             --instance-ids "$INSTANCE_ID" \
             --document-name "AWS-RunShellScript" \
-            --parameters 'commands=["trivy image --format sarif --output /tmp/trivy-fp-arm-results.sarif --severity CRITICAL awiciroh/forcingprocessor:latest-arm64"]' \
+            --parameters 'commands=["trivy image --format sarif --output /tmp/trivy-fp-arm-results.sarif --severity CRITICAL,HIGH awiciroh/forcingprocessor:latest-arm64"]' \
             --region us-east-1 \
             --query 'Command.CommandId' \
             --output text)
