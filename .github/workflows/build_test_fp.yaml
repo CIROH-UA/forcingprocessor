@@ -16,6 +16,7 @@ on:
     branches:
       - main
       - fp_workflow
+      - trivy_scan
     paths:
       - 'docker/**' 
       - 'src/forcingprocessor/**'
@@ -62,6 +63,15 @@ jobs:
       run: |
         git clone --single-branch --branch main --depth 1 https://github.com/CIROH-UA/ngen-datastream.git
   
+    - name: Run Trivy vulnerability scan - deps
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
+
+    - name: Run Trivy vulnerability scan - fp
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor:latest-x86'
     - name: Prepare and test docker containers
       run: |
         cd ngen-datastream
@@ -75,6 +85,7 @@ jobs:
         fi
         echo $DS_TAG
         export DS_TAG=$DS_TAG FP_TAG=latest-x86 && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
+
 
 
   build-test-docker-arm:
