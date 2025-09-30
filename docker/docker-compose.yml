@@ -9,6 +9,7 @@ services:
       cache_from:
         - awiciroh/forcingprocessor-deps:latest
     image: awiciroh/forcingprocessor-deps:${TAG:-latest}
+
   forcingprocessor:
     build:
       context: ..
