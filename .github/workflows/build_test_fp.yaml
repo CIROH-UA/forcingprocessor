@@ -65,26 +65,30 @@ jobs:
         echo "Using unique tag: $UNIQUE_TAG"
         echo "UNIQUE_TAG=$UNIQUE_TAG" >> $GITHUB_ENV
         
-        # Build and push deps image first with unique tag
-        cd docker
-        docker build -f Dockerfile.forcingprocessor-deps \
-          --build-arg ARCH=x86 \
-          --no-cache \
-          -t awiciroh/forcingprocessor-deps:$UNIQUE_TAG .
+        # Set environment variables for docker-compose
+        export TAG=$UNIQUE_TAG
+        export ARCH=x86
+        export TAG_NAME=$UNIQUE_TAG
         
-        # Push deps image immediately so it's available in registry
+        echo "Environment variables set:"
+        echo "TAG=$TAG"
+        echo "ARCH=$ARCH" 
+        echo "TAG_NAME=$TAG_NAME"
+        
+        # Build using docker-compose with proper tag passing
+        cd docker
+        docker-compose build --no-cache forcingprocessor-deps
+        
+        # Push deps image to registry so it's available for main build
         docker push awiciroh/forcingprocessor-deps:$UNIQUE_TAG
         echo "Deps image pushed to registry with tag: $UNIQUE_TAG"
         
-        # Build main image using the unique tag
-        cd ..
-        docker build -f docker/Dockerfile.forcingprocessor \
-          --build-arg TAG_NAME=$UNIQUE_TAG \
-          --no-cache \
-          -t awiciroh/forcingprocessor:$UNIQUE_TAG .
+        # Build main image using docker-compose
+        docker-compose build --no-cache forcingprocessor
         
         # Tag as latest-x86 for compatibility
         docker tag awiciroh/forcingprocessor:$UNIQUE_TAG awiciroh/forcingprocessor:latest-x86
+        docker tag awiciroh/forcingprocessor-deps:$UNIQUE_TAG awiciroh/forcingprocessor-deps:latest-x86
         
         echo "Built images:"
         docker images | grep forcingprocessor
