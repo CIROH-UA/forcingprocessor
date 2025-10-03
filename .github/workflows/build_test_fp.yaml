@@ -75,16 +75,16 @@ jobs:
         echo "ARCH=$ARCH" 
         echo "TAG_NAME=$TAG_NAME"
         
-        # Build using docker-compose with proper tag passing
+        # Build using docker compose with proper tag passing
         cd docker
-        docker-compose build --no-cache forcingprocessor-deps
+        docker compose build --no-cache forcingprocessor-deps
         
         # Push deps image to registry so it's available for main build
         docker push awiciroh/forcingprocessor-deps:$UNIQUE_TAG
         echo "Deps image pushed to registry with tag: $UNIQUE_TAG"
         
-        # Build main image using docker-compose
-        docker-compose build --no-cache forcingprocessor
+        # Build main image using docker compose
+        docker compose build --no-cache forcingprocessor
         
         # Tag as latest-x86 for compatibility
         docker tag awiciroh/forcingprocessor:$UNIQUE_TAG awiciroh/forcingprocessor:latest-x86
