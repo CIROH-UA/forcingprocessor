@@ -1,3 +1,4 @@
+
 name: Build and Test Forcing Processor with Datastream
 on:
   workflow_dispatch:
@@ -16,6 +17,7 @@ on:
     branches:
       - main
       - fp_workflow
+      - trivy_scan
     paths:
       - 'docker/**' 
       - 'src/forcingprocessor/**'
@@ -47,7 +49,6 @@ jobs:
         aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
         aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
         aws configure set region us-east-1
-
     # - name: Install packages for datastream
     #   run: |
     #     curl -L -O https://github.com/lynker-spatial/hfsubsetCLI/releases/download/v1.1.0/hfsubset-v1.1.0-linux_amd64.tar.gz && tar -xzvf hfsubset-v1.1.0-linux_amd64.tar.gz && sudo mv ./hfsubset /usr/bin/hfsubset && sudo apt-get update && sudo apt-get install git pip pigz -y        
@@ -95,6 +96,64 @@ jobs:
       run: |
         git clone --single-branch --branch main --depth 1 https://github.com/CIROH-UA/ngen-datastream.git
   
+    - name: Run Trivy vulnerability scan - deps (SARIF for GitHub)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
+        format: 'sarif'
+        output: 'trivy-deps-x86-results.sarif'
+        severity: 'CRITICAL'
+
+    - name: Run Trivy vulnerability scan - deps (JSON for artifacts)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor-deps:latest-x86'
+        format: 'json'
+        output: 'trivy-deps-x86-results.json'
+        severity: 'CRITICAL'
+
+    - name: Upload Trivy scan results - deps
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-deps-x86-results.sarif'
+        category: 'trivy-deps-x86'
+
+    - name: Run Trivy vulnerability scan - fp (SARIF for GitHub)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor:latest-x86'
+        format: 'sarif'
+        output: 'trivy-fp-x86-results.sarif'
+        severity: 'CRITICAL'
+
+    - name: Run Trivy vulnerability scan - fp (JSON for artifacts)
+      uses: aquasecurity/trivy-action@0.28.0
+      with:
+        image-ref: 'awiciroh/forcingprocessor:latest-x86'
+        format: 'json'
+        output: 'trivy-fp-x86-results.json'
+        severity: 'CRITICAL'
+
+    - name: Upload Trivy scan results - fp
+      uses: github/codeql-action/upload-sarif@v3
+      if: always()
+      with:
+        sarif_file: 'trivy-fp-x86-results.sarif'
+        category: 'trivy-fp-x86'
+
+    - name: Save Trivy results as artifacts
+      uses: actions/upload-artifact@v4
+      if: always()
+      with:
+        name: trivy-results-x86
+        path: |
+          trivy-deps-x86-results.json
+          trivy-fp-x86-results.json
+          trivy-deps-x86-results.sarif
+          trivy-fp-x86-results.sarif
+        retention-days: 10
+
     - name: Prepare and test docker containers
       run: |
         cd ngen-datastream
@@ -129,7 +188,6 @@ jobs:
           aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws configure set region us-east-1
-
       - name: clone ngen
         run: |
           git clone --single-branch --branch main --depth 1 https://github.com/CIROH-UA/ngen-datastream.git
@@ -148,7 +206,6 @@ jobs:
           cd $GITHUB_WORKSPACE/.github/executions
           sed -i "s#\${BRANCH_NAME}#$BRANCH_NAME#g" test_execution_gp_arm_docker_buildNtester.json
           cat test_execution_gp_arm_docker_buildNtester.json
-
           if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.ds_tag }}" ]; then
             DS_TAG="${{ inputs.ds_tag }}-arm64"
             echo "Using manual input branch: $DS_TAG"
@@ -161,8 +218,6 @@ jobs:
           cd $GITHUB_WORKSPACE/.github/executions
           sed -i "s/\${DS_TAG}/$DS_TAG/g" test_execution_gp_arm_docker_buildNtester.json
           cat test_execution_gp_arm_docker_buildNtester.json
-
-
       - name: Build AWS Infra
         run: |
           cd $GITHUB_WORKSPACE/ngen-datastream/research_datastream/terraform
