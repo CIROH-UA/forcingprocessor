@@ -1,2 +1,2 @@
-forcingprocessor: "test"
-forcingprocessor-deps: "test"
+forcingprocessor: "2.0.0"
+forcingprocessor-deps: "1.0.0"

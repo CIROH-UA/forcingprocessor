@@ -77,14 +77,12 @@ jobs:
         
         # Build using docker compose with proper tag passing
         cd docker
-        docker compose build --no-cache forcingprocessor-deps
+        docker compose build --no-cache
         
-        # Push deps image to registry so it's available for main build
+        # Push both images to registry
         docker push awiciroh/forcingprocessor-deps:$UNIQUE_TAG
-        echo "Deps image pushed to registry with tag: $UNIQUE_TAG"
-        
-        # Build main image using docker compose
-        docker compose build --no-cache forcingprocessor
+        docker push awiciroh/forcingprocessor:$UNIQUE_TAG
+        echo "Both images pushed to registry with tag: $UNIQUE_TAG"
         
         # Tag as latest-x86 for compatibility
         docker tag awiciroh/forcingprocessor:$UNIQUE_TAG awiciroh/forcingprocessor:latest-x86
