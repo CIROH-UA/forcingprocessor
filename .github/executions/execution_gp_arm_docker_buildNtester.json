@@ -25,7 +25,7 @@
   "KeyName"            : "actions_key_arm",
   "SecurityGroupIds"   : ["sg-0fcbe0c6d6faa0117"],
   "IamInstanceProfile": {
-    "Name": "datastream_ec2_profile_github_actions_arm"
+    "Name": "default_ec2_profile"
   },
   "TagSpecifications"   :[
     {
