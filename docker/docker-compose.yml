@@ -5,14 +5,16 @@ services:
       context: .
       dockerfile: Dockerfile.forcingprocessor-deps
       args:
-        ARCH: ${ARCH}
-      cache_from:
-        - awiciroh/forcingprocessor-deps:latest
+        ARCH: ${ARCH:-x86}
+      # cache_from:
+      #   - awiciroh/forcingprocessor-deps:latest
     image: awiciroh/forcingprocessor-deps:${TAG:-latest}
   forcingprocessor:
+    depends_on:
+      - forcingprocessor-deps
     build:
       context: ..
       dockerfile: docker/Dockerfile.forcingprocessor
       args:
-        TAG_NAME: ${TAG:-latest}
+        TAG_NAME: ${TAG_NAME:-${TAG:-latest}}
     image: awiciroh/forcingprocessor:${TAG:-latest}
