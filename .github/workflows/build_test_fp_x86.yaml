@@ -1,4 +1,4 @@
-name: Build, Test Datastream Docker Containers on X86
+name: Build, Test Datastream Docker Containers on ARM
 on:
   workflow_dispatch:
     inputs:
@@ -67,9 +67,15 @@ jobs:
 
     - name: Build docker containers
       run : |        
-        # export ARCH=$(uname -m)
         docker compose -f docker/docker-compose.yml build forcingprocessor-deps
         docker compose -f docker/docker-compose.yml build forcingprocessor
+        if [ -z "${{ inputs.fp_tag }}" ]; then
+          echo "FP_TAG input not provided, building forcingprocessor containers..."
+          docker compose -f docker/docker-compose.yml build forcingprocessor-deps
+          docker compose -f docker/docker-compose.yml build forcingprocessor
+        else
+          echo "FP_TAG input provided (${{ inputs.fp_tag }}), skipping forcingprocessor build and using existing images..."
+        fi
 
     - name: clone ngen
       run: |
