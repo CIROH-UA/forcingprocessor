@@ -10,7 +10,7 @@ on:
       ds_tag:
         description: 'DS Docker version tag which you want to test FP with'
         required: false
-        default: 'latest'
+        default: 'latest-arm64'
         type: string
   push:
     branches:
