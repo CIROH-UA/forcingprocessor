@@ -197,9 +197,27 @@ jobs:
             stepfunction-execution-details.json
           retention-days: 30
 
+      - name: Download build logs from S3
+        if: always()
+        run: |
+          aws s3 cp s3://ciroh-community-ngen-datastream/forcingprocessor/test/docker_build_log.txt $GITHUB_WORKSPACE/docker_build_log.txt || true
+          if [ -f $GITHUB_WORKSPACE/docker_build_log.txt ]; then
+            cat $GITHUB_WORKSPACE/docker_build_log.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload build logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-build-logs-${{ github.run_number }}
+          path: docker_build_log.txt
+          if-no-files-found: ignore
+          retention-days: 30
+          
+
       - name: Tear down infra
         if: always()
         working-directory: ngen-datastream/infra/aws/terraform/modules/orchestration
         run : |
           terraform destroy -var-file=variables.tfvars -auto-approve
-          sleep 60x
+          sleep 60
