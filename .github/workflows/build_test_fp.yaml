@@ -8,12 +8,12 @@ on:
         default: ''
         type: string
       ds_tag:
-        description: 'DS Docker version tag which you want to test FP with'
+        description: 'DS Docker version tag which you want to test with'
         required: false
         default: ''
         type: string
       fp_tag:
-        description: 'FP Docker version tag which you want to test FP with'
+        description: 'FP Docker version tag which you want to test with'
         required: false
         default: ''
         type: string
