@@ -8,12 +8,12 @@ on:
         default: ''
         type: string
       ds_tag:
-        description: 'DS Docker version tag which you want to test FP with'
+        description: 'DS Docker version tag which you want to test with'
         required: false
         default: ''
         type: string
       fp_tag:
-        description: 'FP Docker version tag which you want to test FP with'
+        description: 'FP Docker version tag which you want to test with'
         required: false
         default: ''
         type: string
@@ -81,12 +81,21 @@ jobs:
         DS_TAG: ${{ inputs.ds_tag || 'latest' }}
         FP_TAG: ${{ inputs.fp_tag || 'latest' }}
       run : |
+        if [ -z "${{ inputs.ds_tag }}" ]; then
+          echo "DS_TAG input not provided, building datastream containers..."
+          docker compose -f docker/docker-compose.yml build datastream-deps
+          docker compose -f docker/docker-compose.yml build datastream
+        else
+          echo "DS_TAG input provided (${{ inputs.ds_tag }}), skipping datastream build and using existing images..."
+        fi
+        docker images
         curl -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/palisade.gpkg
         ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json
 
 
         
   build-test-docker-arm:
+    needs: build-test-docker-x86
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
