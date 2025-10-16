@@ -77,6 +77,10 @@ jobs:
         ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json
 
 
+
+
+
+
   build-test-docker-arm:
     runs-on: ubuntu-latest
     steps:
@@ -137,11 +141,54 @@ jobs:
           aws secretsmanager put-resource-policy --secret-id docker_awiciroh_creds --resource-policy file://$GITHUB_WORKSPACE/.github/executions/secret-policy.json --block-public-policy --region us-east-1
           if ! aws ec2 describe-key-pairs --key-names "actions_key_arm" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null; then aws ec2 create-key-pair --key-name "actions_key_arm" --query 'KeyName' --output text && echo "Key pair 'actions_key_arm' created in AWS"; else echo "Key pair 'actions_key_arm' already exists"; fi
           sleep 60
-
       - name: Build and Test arm docker containers with AWS infra
+        id: stepfunction_execution
         run : |
           cd ngen-datastream/infra/aws/terraform/modules/orchestration
-          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://$GITHUB_WORKSPACE/.github/executions/test_execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text); echo "Execution ARN: $execution_arn"; status="RUNNING"; while [ "$status" != "SUCCEEDED" ]; do status=$(aws stepfunctions describe-execution --execution-arn "$execution_arn" --region us-east-1 --query 'status' --output text); echo "Current status: $status"; if [ "$status" == "FAILED" ]; then echo "State machine execution failed!"; exit 1; fi; sleep 5; done; echo "State machine execution succeeded!"
+          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://$GITHUB_WORKSPACE/.github/executions/test_execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text)
+          echo "Execution ARN: $execution_arn"
+          echo "execution_arn=$execution_arn" >> $GITHUB_OUTPUT
+          
+          status="RUNNING"
+          while [ "$status" != "SUCCEEDED" ]; do 
+            status=$(aws stepfunctions describe-execution --execution-arn "$execution_arn" --region us-east-1 --query 'status' --output text)
+            echo "Current status: $status"
+            if [ "$status" == "FAILED" ]; then 
+              echo "State machine execution failed!"
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "State machine execution succeeded!"
+
+      - name: Download Step Function execution logs
+        if: always()  # Run even if previous step fails
+        run: |
+          execution_arn="${{ steps.stepfunction_execution.outputs.execution_arn }}"
+          
+          # Get execution history
+          aws stepfunctions get-execution-history \
+            --execution-arn "$execution_arn" \
+            --region us-east-1 \
+            --output json > $GITHUB_WORKSPACE/stepfunction-execution-history.json
+          
+          # Get execution details
+          aws stepfunctions describe-execution \
+            --execution-arn "$execution_arn" \
+            --region us-east-1 \
+            --output json > $GITHUB_WORKSPACE/stepfunction-execution-details.json
+          
+          echo "Logs downloaded successfully"
+
+      - name: Upload Step Function logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stepfunction-logs-${{ github.run_number }}
+          path: |
+            stepfunction-execution-history.json
+            stepfunction-execution-details.json
+          retention-days: 30
 
       - name: Tear down infra
         if: always()
