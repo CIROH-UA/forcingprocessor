@@ -76,11 +76,6 @@ jobs:
         curl -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/palisade.gpkg
         ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json
 
-
-
-
-
-
   build-test-docker-arm:
     runs-on: ubuntu-latest
     steps:
@@ -126,8 +121,8 @@ jobs:
           git clone --single-branch --branch main --depth 1 https://github.com/CIROH-UA/ngen-datastream.git
 
       - name: Build AWS Infra
+        working-directory: ngen-datastream/infra/aws/terraform/modules/orchestration
         run: |
-          cd ngen-datastream/infra/aws/terraform/modules/orchestration
           terraform init
           terraform validate
           ../../../shell/import_resources.sh variables.tfvars
@@ -135,12 +130,13 @@ jobs:
           sleep 60
 
       - name: Set permissions
+        working-directory: ngen-datastream/infra/aws/terraform/modules/orchestration
         run : |
-          cd ngen-datastream/infra/aws/terraform/modules/orchestration
-          aws iam attach-role-policy --role-name default_ec2_role --policy-arn arn:aws:iam::aws:policy/SecretsManagerReadWrite
           aws secretsmanager put-resource-policy --secret-id docker_awiciroh_creds --resource-policy file://$GITHUB_WORKSPACE/.github/executions/secret-policy.json --block-public-policy --region us-east-1
           if ! aws ec2 describe-key-pairs --key-names "actions_key_arm" --query 'KeyPairs[0].KeyName' --output text 2>/dev/null; then aws ec2 create-key-pair --key-name "actions_key_arm" --query 'KeyName' --output text && echo "Key pair 'actions_key_arm' created in AWS"; else echo "Key pair 'actions_key_arm' already exists"; fi
           sleep 60
+
+
       - name: Build and Test arm docker containers with AWS infra
         id: stepfunction_execution
         run : |
@@ -148,6 +144,7 @@ jobs:
           execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://$GITHUB_WORKSPACE/.github/executions/test_execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text)
           echo "Execution ARN: $execution_arn"
           echo "execution_arn=$execution_arn" >> $GITHUB_OUTPUT
+          echo "$execution_arn" > $GITHUB_WORKSPACE/execution_arn.txt
           
           status="RUNNING"
           while [ "$status" != "SUCCEEDED" ]; do 
@@ -164,7 +161,18 @@ jobs:
       - name: Download Step Function execution logs
         if: always()  # Run even if previous step fails
         run: |
+          # Try to get execution_arn from output first, then fallback to file
           execution_arn="${{ steps.stepfunction_execution.outputs.execution_arn }}"
+          if [ -z "$execution_arn" ] && [ -f "$GITHUB_WORKSPACE/execution_arn.txt" ]; then
+            execution_arn=$(cat $GITHUB_WORKSPACE/execution_arn.txt)
+          fi
+          
+          if [ -z "$execution_arn" ]; then
+            echo "No execution ARN found, skipping log download"
+            exit 0
+          fi
+          
+          echo "Downloading logs for execution: $execution_arn"
           
           # Get execution history
           aws stepfunctions get-execution-history \
@@ -192,7 +200,7 @@ jobs:
 
       - name: Tear down infra
         if: always()
+        working-directory: ngen-datastream/infra/aws/terraform/modules/orchestration
         run : |
-          cd ngen-datastream/infra/aws/terraform/modules/orchestration
           terraform destroy -var-file=variables.tfvars -auto-approve
           sleep 60
