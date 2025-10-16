@@ -103,18 +103,17 @@ jobs:
             DS_TAG="latest"
           fi
           
-          cd .github/executions
-          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" test_execution_gp_arm_docker_buildNtester.json
-          sed -i "s/\${DS_TAG}/$DS_TAG/g" test_execution_gp_arm_docker_buildNtester.json
+          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" .github/executions/test_execution_gp_arm_docker_buildNtester.json
+          sed -i "s/\${DS_TAG}/$DS_TAG/g" .github/executions/test_execution_gp_arm_docker_buildNtester.json
           if [ "${{ github.event_name }}" != "workflow_dispatch" ] && ! git diff --name-only HEAD~1 HEAD | grep -q '^docker/Dockerfile\.forcingprocessor-deps$'; then
-            sed -i "/docker-compose\.yml build forcingprocessor-deps/d" test_execution_gp_arm_docker_buildNtester.json
+            sed -i "/docker-compose\.yml build forcingprocessor-deps/d" .github/executions/test_execution_gp_arm_docker_buildNtester.json
           fi
           
           if [ "${{ github.event_name }}" != "workflow_dispatch" ] && ! git diff --name-only HEAD~1 HEAD | grep -q '^docker/Dockerfile\.forcingprocessor$'; then
-            sed -i "/docker-compose\.yml build forcingprocessor/d" test_execution_gp_arm_docker_buildNtester.json
+            sed -i "/docker-compose\.yml build forcingprocessor/d" .github/executions/test_execution_gp_arm_docker_buildNtester.json
           fi
 
-          cat test_execution_gp_arm_docker_buildNtester.json
+          cat .github/executions/test_execution_gp_arm_docker_buildNtester.json
 
       - name: clone ngen
         run: |
@@ -197,6 +196,24 @@ jobs:
             stepfunction-execution-history.json
             stepfunction-execution-details.json
           retention-days: 30
+
+      - name: Download build logs from S3
+        if: always()
+        run: |
+          aws s3 cp s3://ciroh-community-ngen-datastream/forcingprocessor/test/docker_build_log.txt $GITHUB_WORKSPACE/docker_build_log.txt || true
+          if [ -f $GITHUB_WORKSPACE/docker_build_log.txt ]; then
+            cat $GITHUB_WORKSPACE/docker_build_log.txt >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Upload build logs as artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-build-logs-${{ github.run_number }}
+          path: docker_build_log.txt
+          if-no-files-found: ignore
+          retention-days: 30
+          
 
       - name: Tear down infra
         if: always()
