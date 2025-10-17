@@ -110,21 +110,16 @@ jobs:
          
     - name: Build docker containers
       run: |
-        if [ -z "${{ inputs.fp_tag }}" ]; then
-          echo "Building forcingprocessor containers..."
-          
-          if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
-            echo "Building forcingprocessor-deps..."
-            docker compose -f docker/docker-compose.yml build forcingprocessor-deps
-          fi
-          
-          if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
-            echo "Building forcingprocessor..."
-            docker compose -f docker/docker-compose.yml build forcingprocessor
-          fi
-        else
-          echo "Using existing images: ${{ inputs.fp_tag }}"
+        if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
+          echo "Building forcingprocessor-deps..."
+          docker compose -f docker/docker-compose.yml build forcingprocessor-deps
         fi
+        
+        if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
+          echo "Building forcingprocessor..."
+          docker compose -f docker/docker-compose.yml build forcingprocessor
+        fi
+
 
     - name: clone ngen
       run: |
