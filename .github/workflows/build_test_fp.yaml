@@ -1,4 +1,4 @@
-name: Build, Test Datastream Docker Containers on ARM
+name: Build, Test Forcing Processor Docker Containers on ARM
 on:
   workflow_dispatch:
     inputs:
@@ -20,7 +20,7 @@ on:
   push:
     branches:
       - main
-      - fp_workflow
+      - fp_workflows
       - trivy_scan
     paths:
       - 'docker/**' 
