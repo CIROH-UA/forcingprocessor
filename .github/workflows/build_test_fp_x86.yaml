@@ -69,8 +69,8 @@ jobs:
       run : |        
         if [ -z "${{ inputs.fp_tag }}" ]; then
           echo "FP_TAG input not provided, building forcingprocessor containers..."
-          docker compose -f docker/docker-compose.yml build forcingprocessor-deps
-          docker compose -f docker/docker-compose.yml build forcingprocessor
+          TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
+          TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
         else
           echo "FP_TAG input provided (${{ inputs.fp_tag }}), skipping forcingprocessor build and using existing images..."
         fi
@@ -82,8 +82,8 @@ jobs:
     - name: Test docker containers
       working-directory: datastreamcli
       env:
-        DS_TAG: ${{ inputs.ds_tag || 'latest' }}
-        FP_TAG: ${{ inputs.fp_tag || 'latest' }}
+        DS_TAG: ${{ inputs.ds_tag || 'latest-x86' }}
+        FP_TAG: ${{ inputs.fp_tag || 'latest-x86' }}
       run : |
         docker images
         curl -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/palisade.gpkg
