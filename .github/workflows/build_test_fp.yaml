@@ -1,4 +1,4 @@
-name: Build, Test Forcing Processor Docker Containers on ARM
+name: Build, Test Forcing Processor Docker Containers on x86 and ARM
 on:
   workflow_dispatch:
     inputs:
