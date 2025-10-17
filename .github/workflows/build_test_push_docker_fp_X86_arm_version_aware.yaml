@@ -112,12 +112,12 @@ jobs:
       run: |
         if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
           echo "Building forcingprocessor-deps..."
-          docker compose -f docker/docker-compose.yml build forcingprocessor-deps
+          TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
         fi
         
         if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
           echo "Building forcingprocessor..."
-          docker compose -f docker/docker-compose.yml build forcingprocessor
+          TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
         fi
 
 
