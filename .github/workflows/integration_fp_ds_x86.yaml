@@ -1,4 +1,4 @@
-name: Build, Test Datastream Docker Containers on X86
+name: Forcingprocessor X Datastream Integration on X86
 on:
   workflow_dispatch:
     inputs:

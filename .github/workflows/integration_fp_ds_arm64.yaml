@@ -1,4 +1,4 @@
-name: Build, Test Forcing Processor Docker Containers on x86 and ARM
+name: Forcingprocessor X Datastream Integration on ARM
 on:
   workflow_dispatch:
     inputs:
@@ -8,19 +8,19 @@ on:
         default: ''
         type: string
       ds_tag:
-        description: 'DS Docker version tag which you want to test with'
+        description: 'DS Docker version tag which you want to test FP with'
         required: false
         default: ''
         type: string
       fp_tag:
-        description: 'FP Docker version tag which you want to test with'
+        description: 'FP Docker version tag which you want to test FP with'
         required: false
         default: ''
         type: string
   push:
     branches:
       - main
-      - fp_workflows
+      - fp_workflow
       - trivy_scan
     paths:
       - 'docker/**' 
@@ -36,63 +36,8 @@ permissions:
   contents: read
   security-events: write 
 
-jobs:
-  build-test-docker-x86:
-    runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-
-    - name: Set up QEMU
-      uses: docker/setup-qemu-action@v3
-
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-
-    - name: Login to Docker Hub
-      uses: docker/login-action@v3
-      with:
-        username: ${{secrets.DOCKERHUB_USERNAME}}
-        password: ${{secrets.DOCKERHUB_TOKEN}}        
-
-    - name: Configure AWS
-      run: |
-        aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws configure set region us-east-1
-        
-    # - name: Install packages for datastream
-    #   run: |
-    #     curl -L -O https://github.com/lynker-spatial/hfsubsetCLI/releases/download/v1.1.0/hfsubset-v1.1.0-linux_amd64.tar.gz && tar -xzvf hfsubset-v1.1.0-linux_amd64.tar.gz && sudo mv ./hfsubset /usr/bin/hfsubset && sudo apt-get install git pip pigz -y        
-
-    - name: Build docker containers
-      run : |        
-        if [ -z "${{ inputs.fp_tag }}" ]; then
-          echo "FP_TAG input not provided, building forcingprocessor containers..."
-          docker compose -f docker/docker-compose.yml build forcingprocessor-deps
-          docker compose -f docker/docker-compose.yml build forcingprocessor
-        else
-          echo "FP_TAG input provided (${{ inputs.fp_tag }}), skipping forcingprocessor build and using existing images..."
-        fi
-
-    - name: clone ngen
-      run: |
-        git clone --single-branch --branch main --depth 1 https://github.com/CIROH-UA/datastreamcli.git
-
-    - name: Test docker containers
-      working-directory: datastreamcli
-      env:
-        DS_TAG: ${{ inputs.ds_tag || 'latest' }}
-        FP_TAG: ${{ inputs.fp_tag || 'latest' }}
-      run : |
-        docker images
-        curl -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/palisade.gpkg
-        ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json
-
-
-        
+jobs:    
   build-test-docker-arm:
-    needs: build-test-docker-x86
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
@@ -116,23 +61,19 @@ jobs:
           else
             BRANCH_NAME="${{ github.ref_name }}"
           fi
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.ds_tag }}" ]; then
-            DS_TAG="${{ inputs.ds_tag }}"
-          else
-            DS_TAG="latest"
-          fi
-          
-          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" .github/executions/test_execution_gp_arm_docker_buildNtester.json
-          sed -i "s/\${DS_TAG}/$DS_TAG/g" .github/executions/test_execution_gp_arm_docker_buildNtester.json
+
+          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" .github/executions/fp_ds_test_execution_arm.json
+          sed -i "s/\${DS_TAG}/$DS_TAG/g" .github/executions/fp_ds_test_execution_arm.json
+          sed -i "s/\${FP_TAG}/$FP_TAG/g" .github/executions/fp_ds_test_execution_arm.json
           if [ "${{ github.event_name }}" != "workflow_dispatch" ] && ! git diff --name-only HEAD~1 HEAD | grep -q '^docker/Dockerfile\.forcingprocessor-deps$'; then
-            sed -i "/docker-compose\.yml build forcingprocessor-deps/d" .github/executions/test_execution_gp_arm_docker_buildNtester.json
+            sed -i "/docker-compose\.yml build forcingprocessor-deps/d" .github/executions/fp_ds_test_execution_arm.json
           fi
           
           if [ "${{ github.event_name }}" != "workflow_dispatch" ] && ! git diff --name-only HEAD~1 HEAD | grep -q '^docker/Dockerfile\.forcingprocessor$'; then
-            sed -i "/docker-compose\.yml build forcingprocessor/d" .github/executions/test_execution_gp_arm_docker_buildNtester.json
+            sed -i "/docker-compose\.yml build forcingprocessor/d" .github/executions/fp_ds_test_execution_arm.json
           fi
 
-          cat .github/executions/test_execution_gp_arm_docker_buildNtester.json
+          cat .github/executions/fp_ds_test_execution_arm.json
 
       - name: clone ngen
         run: |
@@ -159,7 +100,7 @@ jobs:
         id: stepfunction_execution
         run : |
           cd ngen-datastream/infra/aws/terraform/modules/orchestration
-          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://$GITHUB_WORKSPACE/.github/executions/test_execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text)
+          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://$GITHUB_WORKSPACE/.github/executions/fp_ds_test_execution_arm.json" --region us-east-1 --query 'executionArn' --output text)
           echo "Execution ARN: $execution_arn"
           echo "execution_arn=$execution_arn" >> $GITHUB_OUTPUT
           echo "$execution_arn" > $GITHUB_WORKSPACE/execution_arn.txt
