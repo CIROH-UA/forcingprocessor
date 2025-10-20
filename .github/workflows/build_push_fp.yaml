@@ -102,18 +102,106 @@ jobs:
       run: |
           if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
             echo "Building forcingprocessor-deps..."
-            docker compose -f docker/docker-compose.yml build forcingprocessor-deps
+            TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor-deps
           fi
           
           if [ "${{ needs.detect-changes.outputs.build_fp }}" == "true" ]; then
             echo "Building forcingprocessor..."
-            docker compose -f docker/docker-compose.yml build forcingprocessor
+            TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
           fi
 
     - name: clone ngen
       run: |
         git clone --single-branch --branch main --depth 1 https://github.com/CIROH-UA/datastreamcli.git
 
+    - name: Test Forcing Processor Amazon Cloud Sources in container
+      if: needs.detect-changes.outputs.build_fp == 'true'
+      run: |
+        docker run --rm \
+          -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+          -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+          awiciroh/forcingprocessor:latest-x86 \
+          bash -c "
+            python -m pytest -vv -k test_noaa_nwm_pds_https && \
+            python -m pytest -vv -k test_noaa_nwm_pds_https_short_range && \
+            python -m pytest -vv -k test_noaa_nwm_pds_https_medium_range && \
+            python -m pytest -vv -k test_noaa_nwm_pds_https_analysis_assim && \
+            python -m pytest -vv -k test_noaa_nwm_pds_https_analysis_assim_extend && \
+            python -m pytest -vv -k test_noaa_nwm_pds_s3 && \
+            python -m pytest -vv -k test_retro_2_1_https && \
+            python -m pytest -vv -k test_retro_2_1_s3 && \
+            python -m pytest -vv -k test_retro_3_0 && \
+            python -m pytest -vv -k test_s3_output
+          "
+
+    - name: Test Forcing Processor Google Cloud Sources in container
+      if: needs.detect-changes.outputs.build_fp == 'true'
+      run: |
+        docker run --rm \
+          -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+          -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+          awiciroh/forcingprocessor:latest-x86 \
+          bash -c "
+            python -m pytest -vv -k test_google_cloud_storage && \
+            python -m pytest -vv -k test_gs && \
+            python -m pytest -vv -k test_gcs
+          "
+
+    - name: Test Forcing Processor for NRDS in container
+      if: needs.detect-changes.outputs.build_fp == 'true'
+      run: |
+        docker run --rm \
+          -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+          -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+          awiciroh/forcingprocessor:latest-x86 \
+          python -m pytest -vv tests/test_nrds_fp.py
+
+    - name: Test Forcing Processor Output Options in container
+      if: needs.detect-changes.outputs.build_fp == 'true'
+      run: |
+        docker run --rm \
+          -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+          -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+          awiciroh/forcingprocessor:latest-x86 \
+          bash -c "
+            python -m pytest -vv -k test_csv_output_type && \
+            python -m pytest -vv -k test_parquet_output_type
+          "
+
+    - name: Test Forcing Processor Plotting in container
+      if: needs.detect-changes.outputs.build_fp == 'true'
+      run: |
+        docker run --rm \
+          -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+          -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+          awiciroh/forcingprocessor:latest-x86 \
+          bash -c "
+            python -m pytest -vv tests/test_plotter.py && \
+            python -m pytest -vv -k test_plotting
+          "
+
+    - name: Test Forcing Processor Weights Generation in container
+      if: needs.detect-changes.outputs.build_fp == 'true'
+      run: |
+        docker run --rm \
+          -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+          -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+          awiciroh/forcingprocessor:latest-x86 \
+          python -m pytest -vv tests/test_hf2ds.py
+
+    # Test forcingprocessor-deps container
+    - name: Test forcingprocessor-deps container functionality
+      if: needs.detect-changes.outputs.build_deps == 'true'
+      run: |
+        docker run --rm \
+          -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+          -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+          awiciroh/forcingprocessor-deps:latest-x86 \
+          bash -c "
+            python -m pytest -vv -k test_noaa_nwm_pds_https && \
+            python -m pytest -vv -k test_google_cloud_storage && \
+            python -m pytest -vv tests/test_nrds_fp.py
+          "
 
     - name: Run Trivy vulnerability scan - deps (JSON for artifacts)
       if:  needs.detect-changes.outputs.build_deps == 'true'
@@ -192,13 +280,13 @@ jobs:
             BRANCH_NAME="${{ github.ref_name }}"
           fi
 
-          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" .github/executions/execution_gp_arm_docker_buildNtester.json
+          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" .github/executions/fp_push_execution_arm.json
           if [ "${{ needs.detect-changes.outputs.build_deps }}" != "true" ]; then
-            sed -i "/docker-compose\.yml build forcingprocessor-deps/d" .github/executions/execution_gp_arm_docker_buildNtester.json
+            sed -i "/docker-compose\.yml build forcingprocessor-deps/d" .github/executions/fp_push_execution_arm.json
           fi
 
           if [ "${{ needs.detect-changes.outputs.build_fp }}" != "true" ]; then
-            sed -i "/docker-compose\.yml build forcingprocessor/d" .github/executions/execution_gp_arm_docker_buildNtester.json
+            sed -i "/docker-compose\.yml build forcingprocessor/d" .github/executions/fp_push_execution_arm.json
           fi
           BUILD_FLAGS=""
           DEPS_TAG=""
@@ -230,13 +318,13 @@ jobs:
           BUILD_FLAGS=$(echo "$BUILD_FLAGS" | sed 's/^ *//')
 
           sed -i -e "s/\${DEPS_TAG}/$DEPS_TAG/g" -e "s/\${FP_TAG}/$FP_TAG/g" -e "s/\${BUILD_ARGS}/$BUILD_FLAGS/g" \
-            .github/executions/execution_gp_arm_docker_buildNtester.json
+            .github/executions/fp_push_execution_arm.json
           
           echo "Generated execution file:"
-          cat .github/executions/execution_gp_arm_docker_buildNtester.json
+          cat .github/executions/fp_push_execution_arm.json
 
           echo "Building with DEPS_TAG: $DEPS_TAG, FP_TAG: $FP_TAG and FLAGS: $BUILD_FLAGS"
-          cat .github/executions/execution_gp_arm_docker_buildNtester.json
+          cat .github/executions/fp_push_execution_arm.json
 
       - name: clone ngen
         if: steps.prep_config.outputs.skip_arm_build != 'true'
@@ -267,7 +355,7 @@ jobs:
         id: stepfunction_execution
         run : |
           cd ngen-datastream/infra/aws/terraform/modules/orchestration
-          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://$GITHUB_WORKSPACE/.github/executions/execution_gp_arm_docker_buildNtester.json" --region us-east-1 --query 'executionArn' --output text)
+          execution_arn=$(aws stepfunctions start-execution --state-machine-arn $(cat ./sm_ARN.txt) --name docker_builder_$(env TZ=US/Eastern date +'%Y%m%d%H%M%S') --input "file://$GITHUB_WORKSPACE/.github/executions/fp_push_execution_arm.json" --region us-east-1 --query 'executionArn' --output text)
           echo "Execution ARN: $execution_arn"
           echo "execution_arn=$execution_arn" >> $GITHUB_OUTPUT
           echo "$execution_arn" > $GITHUB_WORKSPACE/execution_arn.txt
