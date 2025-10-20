@@ -110,10 +110,6 @@ jobs:
             TAG=latest-x86 docker compose -f docker/docker-compose.yml build forcingprocessor
           fi
 
-    - name: clone ngen
-      run: |
-        git clone --single-branch --branch main --depth 1 https://github.com/CIROH-UA/datastreamcli.git
-
     - name: Test Forcing Processor Amazon Cloud Sources in container
       if: needs.detect-changes.outputs.build_fp == 'true'
       run: |
