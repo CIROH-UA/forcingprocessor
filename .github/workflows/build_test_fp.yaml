@@ -61,33 +61,18 @@ jobs:
 
     - name: Build docker containers
       run: |
-        # Generate unique tag to ensure fresh builds
-        UNIQUE_TAG="ubuntu-$(date +%Y%m%d-%H%M%S)-x86"
-        echo "Using unique tag: $UNIQUE_TAG"
-        echo "UNIQUE_TAG=$UNIQUE_TAG" >> $GITHUB_ENV
-        
         # Set environment variables for docker-compose
-        export TAG=$UNIQUE_TAG
+        export TAG=latest-x86
         export ARCH=x86
-        export TAG_NAME=$UNIQUE_TAG
+        export TAG_NAME=latest-x86
         
         echo "Environment variables set:"
         echo "TAG=$TAG"
         echo "ARCH=$ARCH" 
         echo "TAG_NAME=$TAG_NAME"
         
-        # Build using docker compose with proper tag passing
-        cd docker
-        docker compose build --no-cache
-        
-        # Push both images to registry
-        docker push awiciroh/forcingprocessor-deps:$UNIQUE_TAG
-        docker push awiciroh/forcingprocessor:$UNIQUE_TAG
-        echo "Both images pushed to registry with tag: $UNIQUE_TAG"
-        
-        # Tag as latest-x86 for compatibility
-        docker tag awiciroh/forcingprocessor:$UNIQUE_TAG awiciroh/forcingprocessor:latest-x86
-        docker tag awiciroh/forcingprocessor-deps:$UNIQUE_TAG awiciroh/forcingprocessor-deps:latest-x86
+        # Build using docker-compose
+        docker compose -f docker/docker-compose.yml build --no-cache
         
         echo "Built images:"
         docker images | grep forcingprocessor
@@ -166,8 +151,8 @@ jobs:
           echo "Using default DS_TAG: $DS_TAG"
         fi
         
-        # Use the unique tag for FP_TAG
-        FP_TAG="${{ env.UNIQUE_TAG }}"
+        # Use latest-x86 tag for FP_TAG
+        FP_TAG="latest-x86"
         echo "Using DS_TAG: $DS_TAG"
         echo "Using FP_TAG: $FP_TAG"
         export DS_TAG=$DS_TAG FP_TAG=$FP_TAG && ./scripts/datastream -s 202006200100 -e 202006200200 -C NWM_RETRO_V3 -d $(pwd)/data/datastream_test -g $(pwd)/palisade.gpkg -R $(pwd)/configs/ngen/realization_sloth_nom_cfe_pet.json -n 4
