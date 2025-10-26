@@ -1,0 +1,127 @@
+name: Build, Test Forcing Processor Docker Containers on X86
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+      - fp_workflow
+    paths:
+      - 'docker/**'
+      - 'src/forcingprocessor/**'
+      - 'tests/**'
+      - '.github/workflows/**'
+  pull_request:
+    paths:
+      - 'docker/**'
+      - 'src/forcingprocessor/**'
+      - 'tests/**'
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  build-x86:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Configure AWS
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region us-east-1
+          
+      - name: Build forcingprocessor-deps
+        run: |
+          cd docker
+          TAG=latest-x86 docker compose -f docker-compose.yml build forcingprocessor-deps
+            
+      - name: Build forcingprocessor
+        run: |
+          cd docker
+          TAG=latest-x86 docker compose -f docker-compose.yml build forcingprocessor
+            
+      - name: List built images
+        run: docker images | grep forcingprocessor
+
+      - name: Save Docker images
+        run: |
+          docker save awiciroh/forcingprocessor:latest-x86 -o /tmp/forcingprocessor-x86.tar
+          
+      - name: Upload forcingprocessor image
+        uses: actions/upload-artifact@v4
+        with:
+          name: forcingprocessor-x86
+          path: /tmp/forcingprocessor-x86.tar
+          retention-days: 1
+          compression-level: 0
+
+      - name: Clean up local tar files
+        if: always()
+        run: rm -f /tmp/forcingprocessor-x86.tar
+
+  test-x86:
+    needs: build-x86
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        test-suite:
+          # Test 1: Core data transformation
+          - name: "Core Processing Logic"
+            image: "forcingprocessor"
+            command: "python3 -m pytest -vv tests/test_medium_range_mod.py"
+    name: "${{ matrix.test-suite.name }}"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.test-suite.image }}-x86
+          path: /tmp
+
+      - name: Load Docker image
+        run: docker load -i /tmp/${{ matrix.test-suite.image }}-x86.tar
+
+      - name: Clean up tar file immediately
+        run: rm -f /tmp/${{ matrix.test-suite.image }}-x86.tar
+        
+      - name: Run ${{ matrix.test-suite.name }}
+        run: |
+          docker run --rm \
+            -v $(pwd):/forcingprocessor \
+            -w /forcingprocessor \
+            -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+            -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+            -e AWS_REGION=us-east-1 \
+            awiciroh/${{ matrix.test-suite.image }}:latest-x86 \
+            ${{ matrix.test-suite.command }}
+            
+      - name: Clean up Docker image
+        if: always()
+        run: |
+          docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-x86 || true
+          docker system prune -f
+          
+  cleanup-artifacts:
+    needs: test-x86
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Delete artifacts
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: forcingprocessor-x86

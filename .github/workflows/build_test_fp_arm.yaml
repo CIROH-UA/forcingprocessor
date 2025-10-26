@@ -1,0 +1,180 @@
+name: Build, Test Forcing Processor Docker Containers on ARM
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  build-arm64:
+    runs-on: ubuntu-22.04-arm64
+    steps:
+      - name: Pre-cleanup workspace
+        continue-on-error: true
+        run: |
+          sudo rm -rf ${{ github.workspace }}/* || true
+          sudo rm -rf ${{ github.workspace }}/.* || true
+          
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region us-east-1
+          
+      - name: Build forcingprocessor-deps
+        run: |
+          cd docker
+          ARCH=aarch64 TAG=latest-arm64 \
+            docker compose -f docker-compose.yml build forcingprocessor-deps
+            
+      - name: Build forcingprocessor
+        run: |
+          cd docker
+          ARCH=aarch64 TAG=latest-arm64 \
+            docker compose -f docker-compose.yml build forcingprocessor
+            
+      - name: List built images
+        run: docker images | grep forcingprocessor
+
+      - name: Save Docker images
+        run: |
+          docker save awiciroh/forcingprocessor:latest-arm64 -o /tmp/forcingprocessor-arm64.tar
+          
+      - name: Upload forcingprocessor image
+        uses: actions/upload-artifact@v4
+        with:
+          name: forcingprocessor-arm64
+          path: /tmp/forcingprocessor-arm64.tar
+          retention-days: 1
+          compression-level: 0
+
+      - name: Clean up local tar files
+        if: always()
+        run: rm -f /tmp/forcingprocessor-arm64.tar
+
+  test-arm64:
+    needs: build-arm64
+    runs-on: ubuntu-22.04-arm64
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        test-suite:
+          - name: "Core Processing Logic"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_medium_range_mod.py"
+
+          # AWS sources group (from your aws workflow)
+          - name: "AWS Sources"
+            image: "forcingprocessor"
+            command: |
+              bash -lc "
+                pytest -vv -k test_noaa_nwm_pds_https && \
+                pytest -vv -k test_noaa_nwm_pds_https_short_range && \
+                pytest -vv -k test_noaa_nwm_pds_https_medium_range && \
+                pytest -vv -k test_noaa_nwm_pds_https_analysis_assim
+                # pytest -vv -k test_noaa_nwm_pds_https_analysis_assim_extend && \
+                # pytest -vv -k test_noaa_nwm_pds_s3 && \
+                # pytest -vv -k test_retro_2_1_https && \
+                # pytest -vv -k test_retro_2_1_s3 && \
+                # pytest -vv -k test_retro_3_0 && \
+                # pytest -vv -k test_s3_output
+              "
+          # GCS sources group (from your gcs workflow)
+          - name: "GCS Sources"
+            image: "forcingprocessor"
+            command: |
+              bash -lc "
+                pytest -vv -k test_google_cloud_storage && \
+                pytest -vv -k test_gs && \
+                pytest -vv -k test_gcs
+              "
+          # Weights (GPKG + Parquet)
+          - name: "Weights Generation"
+            image: "forcingprocessor"
+            command: |
+              bash -lc "
+                pytest -vv tests/test_hf2ds.py::test_gpkg_v22 && \
+                pytest -vv tests/test_hf2ds.py::test_parquet_v21
+              "
+          # Output options (CSV only; parquet_output_type doesn't exist)
+          - name: "Output Formats"
+            image: "forcingprocessor"
+            command: "pytest -vv -k test_csv_output_type"
+
+          # Plotting (both)
+          - name: "Plotting"
+            image: "forcingprocessor"
+            command: |
+              bash -lc "
+                pytest -vv tests/test_plotter.py && \
+                pytest -vv -k test_plotting
+              "
+          # NRDS end-to-end
+          - name: "NRDS Pipeline"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_nrds_fp.py"
+
+
+    name: "${{ matrix.test-suite.name }}"
+    
+    steps:
+      - name: Pre-cleanup workspace
+        continue-on-error: true
+        run: |
+          sudo rm -rf ${{ github.workspace }}/* || true
+          sudo rm -rf ${{ github.workspace }}/.* || true
+          
+      - name: Checkout code
+        uses: actions/checkout@v4
+        
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: forcingprocessor-arm64  
+          path: /tmp/artifacts
+
+      - name: Verify artifact and load
+        run: |
+          set -euo pipefail
+          ls -lh /tmp/artifacts
+          docker load -i /tmp/artifacts/forcingprocessor-arm64.tar
+      - name: Pre-download GPKG (vpuid=09)
+        run: |
+          set -euo pipefail
+          mkdir -p tests/data
+          curl -fL --retry 3 --retry-delay 2 \
+            -o tests/data/vpu-09_subset.gpkg \
+            "https://communityhydrofabric.s3.us-east-1.amazonaws.com/hydrofabrics/community/VPU/vpu-09_subset.gpkg"
+          [ -s tests/data/vpu-09_subset.gpkg ]
+      - name: Run ${{ matrix.test-suite.name }}
+        run: |
+          docker run --rm \
+            -v $(pwd):/forcingprocessor \
+            -w /forcingprocessor \
+            -e AWS_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+            -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+            awiciroh/${{ matrix.test-suite.image }}:latest-arm64 \
+            ${{ matrix.test-suite.command }}
+            
+      - name: Clean up Docker image
+        if: always()
+        run: |
+          docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-arm64 || true
+          docker system prune -f
+          
+  cleanup-artifacts:
+    needs: test-arm64
+    runs-on: ubuntu-22.04-arm64
+    if: always()
+    steps:
+      - name: Delete artifacts
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: forcingprocessor-arm64
