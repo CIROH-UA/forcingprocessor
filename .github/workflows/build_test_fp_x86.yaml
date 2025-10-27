@@ -77,10 +77,53 @@ jobs:
       max-parallel: 3
       matrix:
         test-suite:
-          # Test 1: Core data transformation
-          - name: "Core Processing Logic"
+          - name: "NOMADS & Basic Tests"
             image: "forcingprocessor"
-            command: "python3 -m pytest -vv tests/test_medium_range_mod.py"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_nomads_prod or test_nwm_google_apis'"
+          
+          - name: "Google Cloud Storage"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_google_cloud_storage or test_gs or test_gcs'"
+          
+          - name: "NOAA NWM PDS - Base HTTPS"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https and not short_range and not medium_range and not analysis_assim'"
+          
+          - name: "NOAA NWM - Short Range"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_short_range'"
+          
+          - name: "NOAA NWM - Medium Range"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_medium_range'"
+          
+          - name: "NOAA NWM - Analysis Assim"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_analysis_assim and not extend'"
+          
+          - name: "NOAA NWM - Analysis Assim Extend"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_analysis_assim_extend'"
+          
+          - name: "NOAA NWM - S3 Access"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_s3'"
+          
+          - name: "Retrospective v2.1"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_retro_2_1'"
+          
+          - name: "Retrospective v3.0"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_retro_3_0'"
+          
+          - name: "Output Formats"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_csv_output_type or test_parquet_output_type'"
+          
+          - name: "Plotting & S3 Output"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_plotting or test_s3_output'"
     name: "${{ matrix.test-suite.name }}"
     
     steps:
