@@ -187,7 +187,7 @@ jobs:
             BRANCH_NAME="${{ github.ref_name }}"
           fi
 
-          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" .github/executions/fp_push_execution_arm.json
+          sed -i "s|\${BRANCH_NAME}|$BRANCH_NAME|g" .github/executions/fp_push_execution_arm.json
           if [ "${{ needs.detect-changes.outputs.build_deps }}" != "true" ]; then
             sed -i "/docker-compose\.yml build forcingprocessor-deps/d" .github/executions/fp_push_execution_arm.json
           fi
