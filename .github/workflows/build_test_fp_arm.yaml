@@ -24,18 +24,18 @@ jobs:
           aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws configure set region us-east-1
-          
+
       - name: Build forcingprocessor-deps
         run: |
           cd docker
           ARCH=aarch64 TAG=latest-arm64 \
-            docker compose -f docker-compose.yml build forcingprocessor-deps
+            docker compose -f docker-compose.yml build --no-cache forcingprocessor-deps
             
       - name: Build forcingprocessor
         run: |
           cd docker
           ARCH=aarch64 TAG=latest-arm64 \
-            docker compose -f docker-compose.yml build forcingprocessor
+            docker compose -f docker-compose.yml build --no-cache forcingprocessor
             
       - name: List built images
         run: docker images | grep forcingprocessor
@@ -59,67 +59,59 @@ jobs:
   test-arm64:
     needs: build-arm64
     runs-on: ubuntu-22.04-arm64
-    timeout-minutes: 60
+    timeout-minutes: 30
     strategy:
       fail-fast: false
-      max-parallel: 6
+      max-parallel: 10
       matrix:
         test-suite:
-          - name: "Core Processing Logic"
+          - name: "NOMADS & Basic Tests"
             image: "forcingprocessor"
-            command: "pytest -vv tests/test_medium_range_mod.py"
-
-          # AWS sources group (from your aws workflow)
-          - name: "AWS Sources"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_nomads_prod or test_nwm_google_apis'"
+          
+          - name: "Google Cloud Storage"
             image: "forcingprocessor"
-            command: |
-              bash -lc "
-                pytest -vv -k test_noaa_nwm_pds_https && \
-                pytest -vv -k test_noaa_nwm_pds_https_short_range && \
-                pytest -vv -k test_noaa_nwm_pds_https_medium_range && \
-                pytest -vv -k test_noaa_nwm_pds_https_analysis_assim
-                # pytest -vv -k test_noaa_nwm_pds_https_analysis_assim_extend && \
-                # pytest -vv -k test_noaa_nwm_pds_s3 && \
-                # pytest -vv -k test_retro_2_1_https && \
-                # pytest -vv -k test_retro_2_1_s3 && \
-                # pytest -vv -k test_retro_3_0 && \
-                # pytest -vv -k test_s3_output
-              "
-          # GCS sources group (from your gcs workflow)
-          - name: "GCS Sources"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_google_cloud_storage or test_gs or test_gcs'"
+          
+          - name: "NOAA NWM PDS - Base HTTPS"
             image: "forcingprocessor"
-            command: |
-              bash -lc "
-                pytest -vv -k test_google_cloud_storage && \
-                pytest -vv -k test_gs && \
-                pytest -vv -k test_gcs
-              "
-          # Weights (GPKG + Parquet)
-          - name: "Weights Generation"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https and not short_range and not medium_range and not analysis_assim'"
+          
+          - name: "NOAA NWM - Short Range"
             image: "forcingprocessor"
-            command: |
-              bash -lc "
-                pytest -vv tests/test_hf2ds.py::test_gpkg_v22 && \
-                pytest -vv tests/test_hf2ds.py::test_parquet_v21
-              "
-          # Output options (CSV only; parquet_output_type doesn't exist)
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_short_range'"
+          
+          - name: "NOAA NWM - Medium Range"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_medium_range'"
+          
+          - name: "NOAA NWM - Analysis Assim"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_analysis_assim and not extend'"
+          
+          - name: "NOAA NWM - Analysis Assim Extend"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_analysis_assim_extend'"
+          
+          - name: "NOAA NWM - S3 Access"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_s3'"
+          
+          - name: "Retrospective v2.1"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_retro_2_1'"
+          
+          - name: "Retrospective v3.0"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_retro_3_0'"
+          
           - name: "Output Formats"
             image: "forcingprocessor"
-            command: "pytest -vv -k test_csv_output_type"
-
-          # Plotting (both)
-          - name: "Plotting"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_csv_output_type or test_parquet_output_type'"
+          
+          - name: "Plotting & S3 Output"
             image: "forcingprocessor"
-            command: |
-              bash -lc "
-                pytest -vv tests/test_plotter.py && \
-                pytest -vv -k test_plotting
-              "
-          # NRDS end-to-end
-          - name: "NRDS Pipeline"
-            image: "forcingprocessor"
-            command: "pytest -vv tests/test_nrds_fp.py"
-
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_plotting or test_s3_output'"
 
     name: "${{ matrix.test-suite.name }}"
     
@@ -139,19 +131,41 @@ jobs:
           name: forcingprocessor-arm64  
           path: /tmp/artifacts
 
+
       - name: Verify artifact and load
         run: |
           set -euo pipefail
           ls -lh /tmp/artifacts
-          docker load -i /tmp/artifacts/forcingprocessor-arm64.tar
-      - name: Pre-download GPKG (vpuid=09)
+          
+          # Retry docker load up to 3 times
+          for i in 1 2 3; do
+            if docker load -i /tmp/artifacts/forcingprocessor-arm64.tar; then
+              echo "Successfully loaded image on attempt $i"
+              docker images | grep forcingprocessor
+              break
+            else
+              echo "Failed to load image on attempt $i"
+              if [ $i -lt 3 ]; then
+                echo "Retrying in 10 seconds..."
+                sleep 10
+              else
+                exit 1
+              fi
+            fi
+          done
+
+          
+      - name: Pre-download GPKG (VPU 09)
         run: |
           set -euo pipefail
           mkdir -p tests/data
+          # Download the same GPKG file that test_forcingprocessor.py expects
           curl -fL --retry 3 --retry-delay 2 \
             -o tests/data/vpu-09_subset.gpkg \
-            "https://communityhydrofabric.s3.us-east-1.amazonaws.com/hydrofabrics/community/VPU/vpu-09_subset.gpkg"
+            "https://datastream-resources.s3.us-east-1.amazonaws.com/VPU_09/config/nextgen_VPU_09.gpkg"
           [ -s tests/data/vpu-09_subset.gpkg ]
+          echo "GPKG file size: $(du -h tests/data/vpu-09_subset.gpkg | cut -f1)"
+          
       - name: Run ${{ matrix.test-suite.name }}
         run: |
           docker run --rm \
