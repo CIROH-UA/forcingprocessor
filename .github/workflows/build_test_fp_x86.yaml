@@ -142,7 +142,7 @@ jobs:
       - name: Clean up tar file immediately
         run: rm -f /tmp/${{ matrix.test-suite.image }}-x86.tar
 
-      - name: Pre-download GPKG (VPU 09)    # ← MOVE THIS HERE
+      - name: Pre-download GPKG (VPU 09)
         run: |
           set -euo pipefail
           mkdir -p tests/data
