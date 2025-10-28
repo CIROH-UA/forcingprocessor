@@ -142,6 +142,11 @@ jobs:
       - name: Clean up tar file immediately
         run: rm -f /tmp/${{ matrix.test-suite.image }}-x86.tar
 
+      - name: Download test data
+        run: |
+          mkdir -p $(pwd)/tests/data
+          aws s3 cp s3://datastream-resources/VPU_09/config/nextgen_VPU_09.gpkg $(pwd)/tests/data/vpu-09_subset.gpkg
+
       - name: Run ${{ matrix.test-suite.name }}
         run: |
           docker run --rm \
@@ -151,10 +156,7 @@ jobs:
             -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
             -e AWS_REGION=us-east-1 \
             awiciroh/${{ matrix.test-suite.image }}:latest-x86 \
-            bash -c "mkdir -p /forcingprocessor/tests/data && \
-                    aws s3 cp s3://datastream-resources/VPU_09/config/nextgen_VPU_09.gpkg /forcingprocessor/tests/data/vpu-09_subset.gpkg && \
-                    ${{ matrix.test-suite.command }}"
-
+            bash -c "${{ matrix.test-suite.command }}"
 
       - name: Clean up Docker image
         if: always()
