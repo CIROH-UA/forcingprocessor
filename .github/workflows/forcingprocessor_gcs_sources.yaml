@@ -1,48 +1,196 @@
-# This workflow will install Python dependencies, run tests and lint with a single version of Python
-# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-python
-
-name: Test Forcing Processor Google Cloud Sources
+name: Build, Test Forcing Processor Docker Containers on ARM
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-    paths:
-      - 'src/forcingprocessor/**'
-      - '!src/forcingprocessor/README.md'
-  pull_request:
-    branches:
-      - main    
-    paths:      
-      - 'src/forcingprocessor/**'
-      - '!src/forcingprocessor/README.md'
 
 permissions:
   contents: read
+  security-events: write
+
 jobs:
-  test-forcingprocessor:
-    runs-on: ubuntu-latest
+  build-arm64:
+    runs-on: ubuntu-22.04-arm64
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v3
-      with:
-        python-version: "3.9"
+      - name: Pre-cleanup workspace
+        continue-on-error: true
+        run: |
+          sudo rm -rf ${{ github.workspace }}/* || true
+          sudo rm -rf ${{ github.workspace }}/.* || true
+          
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-    - name: Configure AWS
-      run: |
-        aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws configure set region us-east-1           
+      - name: Configure AWS
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region us-east-1
+
+      - name: Build forcingprocessor-deps
+        run: |
+          cd docker
+          ARCH=aarch64 TAG=latest-arm64 \
+            docker compose -f docker-compose.yml build --no-cache forcingprocessor-deps
+            
+      - name: Build forcingprocessor
+        run: |
+          cd docker
+          ARCH=aarch64 TAG=latest-arm64 \
+            docker compose -f docker-compose.yml build --no-cache forcingprocessor
+            
+      - name: List built images
+        run: docker images | grep forcingprocessor
+
+      - name: Save Docker images
+        run: |
+          docker save awiciroh/forcingprocessor:latest-arm64 -o /tmp/forcingprocessor-arm64.tar
+          
+      - name: Upload forcingprocessor image
+        uses: actions/upload-artifact@v4
+        with:
+          name: forcingprocessor-arm64
+          path: /tmp/forcingprocessor-arm64.tar
+          retention-days: 1
+          compression-level: 0
+
+      - name: Clean up local tar files
+        if: always()
+        run: rm -f /tmp/forcingprocessor-arm64.tar
+
+  test-arm64:
+    needs: build-arm64
+    runs-on: ubuntu-22.04-arm64
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        test-suite:
+          - name: "NOMADS & Basic Tests"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_nomads_prod or test_nwm_google_apis'"
+          
+          - name: "Google Cloud Storage"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_google_cloud_storage or test_gs or test_gcs'"
+          
+          - name: "NOAA NWM PDS - Base HTTPS"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https and not short_range and not medium_range and not analysis_assim'"
+          
+          - name: "NOAA NWM - Short Range"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_short_range'"
+          
+          - name: "NOAA NWM - Medium Range"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_medium_range'"
+          
+          - name: "NOAA NWM - Analysis Assim"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_analysis_assim and not extend'"
+          
+          - name: "NOAA NWM - Analysis Assim Extend"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_analysis_assim_extend'"
+          
+          - name: "NOAA NWM - S3 Access"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_s3'"
+          
+          - name: "Retrospective v2.1"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_retro_2_1'"
+          
+          - name: "Retrospective v3.0"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_retro_3_0'"
+          
+          - name: "Output Formats"
+            image: "forcingprocessor"
+            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_csv_output_type or test_parquet_output_type'"
+          
+          - name: "Plotting & S3 Output"
+            image: "forcingprocessor"
+            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_plotting or test_s3_output'"
+
+    name: "${{ matrix.test-suite.name }}"
+    
+    steps:
+      - name: Pre-cleanup workspace
+        continue-on-error: true
+        run: |
+          sudo rm -rf ${{ github.workspace }}/* || true
+          sudo rm -rf ${{ github.workspace }}/.* || true
+          
+      - name: Checkout code
+        uses: actions/checkout@v4
         
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e .
-        pip install pytest
+      - name: Download Docker image
+        uses: actions/download-artifact@v4
+        with:
+          name: forcingprocessor-arm64  
+          path: /tmp/artifacts
 
-    - name: Test with pytest
-      run: |
-        python -m pytest -vv -k test_google_cloud_storage 
-        python -m pytest -vv -k test_gs 
-        python -m pytest -vv -k test_gcs 
+
+      - name: Verify artifact and load
+        run: |
+          set -euo pipefail
+          ls -lh /tmp/artifacts
+          
+          # Retry docker load up to 3 times
+          for i in 1 2 3; do
+            if docker load -i /tmp/artifacts/forcingprocessor-arm64.tar; then
+              echo "Successfully loaded image on attempt $i"
+              docker images | grep forcingprocessor
+              break
+            else
+              echo "Failed to load image on attempt $i"
+              if [ $i -lt 3 ]; then
+                echo "Retrying in 10 seconds..."
+                sleep 10
+              else
+                exit 1
+              fi
+            fi
+          done
+
+          
+      - name: Pre-download GPKG (VPU 09)
+        run: |
+          set -euo pipefail
+          mkdir -p tests/data
+          # Download the same GPKG file that test_forcingprocessor.py expects
+          curl -fL --retry 3 --retry-delay 2 \
+            -o tests/data/vpu-09_subset.gpkg \
+            "https://datastream-resources.s3.us-east-1.amazonaws.com/VPU_09/config/nextgen_VPU_09.gpkg"
+          [ -s tests/data/vpu-09_subset.gpkg ]
+          echo "GPKG file size: $(du -h tests/data/vpu-09_subset.gpkg | cut -f1)"
+          
+      - name: Run ${{ matrix.test-suite.name }}
+        run: |
+          docker run --rm \
+            -v $(pwd):/forcingprocessor \
+            -w /forcingprocessor \
+            -e AWS_REGION=us-east-1 \
+            -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
+            -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
+            awiciroh/${{ matrix.test-suite.image }}:latest-arm64 \
+            ${{ matrix.test-suite.command }}
+            
+      - name: Clean up Docker image
+        if: always()
+        run: |
+          docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-arm64 || true
+          docker system prune -f
+          
+  cleanup-artifacts:
+    needs: test-arm64
+    runs-on: ubuntu-22.04-arm64
+    if: always()
+    steps:
+      - name: Delete artifacts
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: forcingprocessor-arm64
+
+          
