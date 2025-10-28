@@ -1,0 +1,240 @@
+version: 0.2
+
+env:
+  variables:
+    DOCKER_BUILDKIT: "1"
+    COMPOSE_DOCKER_CLI_BUILD: "1"
+    AWS_ACCOUNT_ID: "879381264451"
+    ECR_REGION: "us-east-1"
+    ECR_REPOSITORY: "forcingprocessor"
+    IMAGE_TAG: "build-${CODEBUILD_BUILD_NUMBER}"
+  parameter-store:
+    DOCKER_USERNAME: /codebuild/docker/username
+    DOCKER_PASSWORD: /codebuild/docker/password
+
+batch:
+  fast-fail: false
+  build-graph:
+    - identifier: build_image
+      env:
+        variables:
+          BUILD_STAGE: "build"
+        compute-type: BUILD_GENERAL1_2XLARGE
+
+    - identifier: test_core_processing
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "core-processing"
+      ignore-failure: true
+
+    - identifier: test_weights_gpkg
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "weights-gpkg"
+      ignore-failure: true
+
+    - identifier: test_aws_https
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "aws-https"
+      ignore-failure: true
+
+    - identifier: test_aws_short_range
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "aws-short-range"
+      ignore-failure: true
+
+    - identifier: test_aws_medium_range
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "aws-medium-range"
+      ignore-failure: true
+
+    - identifier: test_aws_analysis_assim
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "aws-analysis-assim"
+      ignore-failure: true
+
+    - identifier: test_aws_retro
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "aws-retro"
+      ignore-failure: true
+
+    - identifier: test_gcs_sources
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "gcs-sources"
+      ignore-failure: true
+
+    - identifier: test_output_formats
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "output-formats"
+      ignore-failure: true
+
+    - identifier: test_plotting
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "plotting"
+      ignore-failure: true
+
+    - identifier: test_nrds_pipeline
+      depend-on: [build_image]
+      env:
+        variables:
+          BUILD_STAGE: "test"
+          TEST_SUITE: "nrds-pipeline"
+      ignore-failure: true
+
+    - identifier: cleanup_images
+      depend-on:
+        - test_core_processing
+        - test_weights_gpkg
+        - test_aws_https
+        - test_aws_short_range
+        - test_aws_medium_range
+        - test_aws_analysis_assim
+        - test_aws_retro
+        - test_gcs_sources
+        - test_output_formats
+        - test_plotting
+        - test_nrds_pipeline
+      env:
+        variables:
+          BUILD_STAGE: "cleanup"
+      ignore-failure: false
+
+phases:
+  pre_build:
+    commands:
+      - echo "Running on X86_64 architecture"
+      - uname -m
+      - export ECR_URI="${AWS_ACCOUNT_ID}.dkr.ecr.${ECR_REGION}.amazonaws.com/${ECR_REPOSITORY}"
+      - export FULL_IMAGE_TAG="${ECR_URI}:${IMAGE_TAG}"
+      - aws ecr get-login-password --region "$ECR_REGION" | docker login --username AWS --password-stdin "$ECR_URI" > /dev/null 2>&1
+      - |
+        if [ "$BUILD_STAGE" = "build" ] || [ "$BUILD_STAGE" = "test" ]; then
+          mkdir -p tests/data
+          curl -fsSL --retry 3 --retry-delay 2 -o tests/data/vpu-09_subset.gpkg "https://communityhydrofabric.s3.us-east-1.amazonaws.com/hydrofabrics/community/VPU/vpu-09_subset.gpkg" || \
+          curl -fsSL --retry 3 --retry-delay 2 -o tests/data/vpu-09_subset.gpkg "https://datastream-resources.s3.us-east-1.amazonaws.com/VPU_09/config/nextgen_VPU_09.gpkg"
+          curl -fsSL --retry 3 --retry-delay 2 -o tests/data/palisade.gpkg "https://ngen-datastream.s3.us-east-2.amazonaws.com/palisade.gpkg" 2>/dev/null || true
+        fi
+
+  build:
+    commands:
+      - |
+        if [ "$BUILD_STAGE" = "build" ]; then
+          echo "Building Docker image on native X86_64..."
+          echo "Build started at $(date)"
+          cd docker
+          
+          # Build with verbose output to track progress
+          echo "Step 1/2: Building forcingprocessor-deps (this will take 20-30 minutes)..."
+          DOCKER_BUILDKIT=1 TAG=latest-x86 docker compose -f docker-compose.yml build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 forcingprocessor-deps
+          echo "forcingprocessor-deps completed at $(date)"
+          
+          echo "Step 2/2: Building forcingprocessor..."
+          DOCKER_BUILDKIT=1 TAG=latest-x86 docker compose -f docker-compose.yml build --progress=plain --build-arg BUILDKIT_INLINE_CACHE=1 forcingprocessor
+          echo "forcingprocessor completed at $(date)"
+          
+          cd ..
+          docker tag awiciroh/forcingprocessor:latest-x86 "$FULL_IMAGE_TAG"
+          docker push "$FULL_IMAGE_TAG" > /dev/null
+          echo "Build complete: $FULL_IMAGE_TAG"
+          
+        elif [ "$BUILD_STAGE" = "test" ]; then
+          docker pull "$FULL_IMAGE_TAG" > /dev/null
+        elif [ "$BUILD_STAGE" = "cleanup" ]; then
+          echo "Skipping build phase for cleanup"
+        fi
+
+  post_build:
+    commands:
+      - |
+        if [ "$BUILD_STAGE" = "test" ]; then
+          echo "Running: $TEST_SUITE"
+          TEST_EXIT_CODE=0
+          case "$TEST_SUITE" in
+            core-processing)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" pytest -vv tests/test_medium_range_mod.py || TEST_EXIT_CODE=$?
+              ;;
+            weights-gpkg)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" pytest -vv tests/test_hf2ds.py::test_gpkg_v22 || TEST_EXIT_CODE=$?
+              ;;
+            aws-https)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" bash -c "pytest -vv -k 'test_noaa_nwm_pds_https and not short_range and not medium_range and not analysis_assim'" || TEST_EXIT_CODE=$?
+              ;;
+            aws-short-range)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" bash -c "pytest -vv -k test_noaa_nwm_pds_https_short_range" || TEST_EXIT_CODE=$?
+              ;;
+            aws-medium-range)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" bash -c "pytest -vv -k test_noaa_nwm_pds_https_medium_range" || TEST_EXIT_CODE=$?
+              ;;
+            aws-analysis-assim)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" bash -c "pytest -vv -k test_noaa_nwm_pds_https_analysis_assim" || TEST_EXIT_CODE=$?
+              ;;
+            aws-retro)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" bash -c "pytest -vv -k 'test_retro_2_1_https or test_retro_2_1_s3 or test_retro_3_0'" || TEST_EXIT_CODE=$?
+              ;;
+            gcs-sources)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" bash -c "pytest -vv -k 'test_google_cloud_storage or test_gs or test_gcs'" || TEST_EXIT_CODE=$?
+              ;;
+            output-formats)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" pytest -vv -k test_csv_output_type || TEST_EXIT_CODE=$?
+              ;;
+            plotting)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" pytest -vv tests/test_plotter.py || TEST_EXIT_CODE=$?
+              ;;
+            nrds-pipeline)
+              docker run --rm -v "$(pwd)":/forcingprocessor -w /forcingprocessor -e AWS_REGION="$ECR_REGION" "$FULL_IMAGE_TAG" pytest -vv tests/test_nrds_fp.py || TEST_EXIT_CODE=$?
+              ;;
+            *)
+              echo "Unknown test: $TEST_SUITE"; exit 1;;
+          esac
+          if [ $TEST_EXIT_CODE -eq 0 ]; then
+            echo "$TEST_SUITE passed"
+          else
+            echo "$TEST_SUITE failed"; exit $TEST_EXIT_CODE
+          fi
+
+        elif [ "$BUILD_STAGE" = "cleanup" ]; then
+          echo "Cleaning ECR..."
+          IMAGE_DIGESTS=$(aws ecr list-images --repository-name "$ECR_REPOSITORY" --region "$ECR_REGION" --query 'imageIds[*].imageDigest' --output text 2>/dev/null || echo "")
+          if [ -z "$IMAGE_DIGESTS" ]; then
+            echo "No images to clean"
+          else
+            for digest in $IMAGE_DIGESTS; do
+              aws ecr batch-delete-image --repository-name "$ECR_REPOSITORY" --region "$ECR_REGION" --image-ids imageDigest=$digest > /dev/null 2>&1 || true
+            done
+            echo "ECR cleaned"
+          fi
+          exit 0
+        fi
+
+cache:
+  paths:
+    - '/var/lib/docker/**/*'
+    - '/root/.cache/pip/**/*'
