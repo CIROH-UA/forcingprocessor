@@ -163,7 +163,7 @@ jobs:
           # Download general build log
           aws s3 cp s3://ciroh-community-ngen-datastream/forcingprocessor/test/docker_build_log.txt $GITHUB_WORKSPACE/docker_build_log.txt || true
           
-          # Download datastream test output (NEW!)
+          # Download datastream test output
           aws s3 cp s3://ciroh-community-ngen-datastream/forcingprocessor/test/datastream_test_output.txt $GITHUB_WORKSPACE/datastream_test_output.txt || true
           
           # Add to step summary with better formatting
@@ -174,6 +174,8 @@ jobs:
             echo '```' >> $GITHUB_STEP_SUMMARY
             echo "" >> $GITHUB_STEP_SUMMARY
           fi
+          
+          TEST_FAILED=false
           if [ -f $GITHUB_WORKSPACE/datastream_test_output.txt ]; then
             echo "##  Datastream Test Output" >> $GITHUB_STEP_SUMMARY
             
@@ -181,14 +183,23 @@ jobs:
             if grep -q "Exit Code:" $GITHUB_WORKSPACE/datastream_test_output.txt; then
               EXIT_CODE=$(grep "Exit Code:" $GITHUB_WORKSPACE/datastream_test_output.txt | tail -1 | grep -oP 'Exit Code: \K\d+')
               if [ "$EXIT_CODE" != "0" ]; then
-                echo "### Test Failed with Exit Code: $EXIT_CODE" >> $GITHUB_STEP_SUMMARY
+                echo "###  Test Failed with Exit Code: $EXIT_CODE" >> $GITHUB_STEP_SUMMARY
+                echo "::error::Datastream test failed with exit code $EXIT_CODE"
+                TEST_FAILED=true
               else
-                echo "### Test Passed" >> $GITHUB_STEP_SUMMARY
+                echo "###  Test Passed" >> $GITHUB_STEP_SUMMARY
               fi
             fi
+            
             echo '```' >> $GITHUB_STEP_SUMMARY
             cat $GITHUB_WORKSPACE/datastream_test_output.txt >> $GITHUB_STEP_SUMMARY
             echo '```' >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          # Fail the workflow if test failed
+          if [ "$TEST_FAILED" = "true" ]; then
+            echo "Datastream test failed - failing workflow"
+            exit 1
           fi
 
       - name: Upload build logs as artifact
