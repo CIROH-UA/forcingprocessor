@@ -130,6 +130,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
             
+      - name: Configure AWS
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region us-east-1
+          
       - name: Download Docker image
         uses: actions/download-artifact@v4
         with:
@@ -141,6 +147,7 @@ jobs:
 
       - name: Clean up tar file immediately
         run: rm -f /tmp/${{ matrix.test-suite.image }}-x86.tar
+
 
       - name: Download test data
         run: |
