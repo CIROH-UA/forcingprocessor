@@ -29,13 +29,13 @@ jobs:
         run: |
           cd docker
           ARCH=aarch64 TAG=latest-arm64 \
-            docker compose -f docker-compose.yml build --no-cache forcingprocessor-deps
+            docker compose -f docker-compose.yml build forcingprocessor-deps
             
       - name: Build forcingprocessor
         run: |
           cd docker
           ARCH=aarch64 TAG=latest-arm64 \
-            docker compose -f docker-compose.yml build --no-cache forcingprocessor
+            docker compose -f docker-compose.yml build forcingprocessor
             
       - name: List built images
         run: docker images | grep forcingprocessor
