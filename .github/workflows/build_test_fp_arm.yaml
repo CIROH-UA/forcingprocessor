@@ -29,32 +29,34 @@ jobs:
         run: |
           cd docker
           ARCH=aarch64 TAG=latest-arm64 \
-            docker compose -f docker-compose.yml build --no-cache forcingprocessor-deps
+            docker compose -f docker-compose.yml build forcingprocessor-deps
             
       - name: Build forcingprocessor
         run: |
           cd docker
           ARCH=aarch64 TAG=latest-arm64 \
-            docker compose -f docker-compose.yml build --no-cache forcingprocessor
+            docker compose -f docker-compose.yml build forcingprocessor
             
       - name: List built images
         run: docker images | grep forcingprocessor
 
+
       - name: Save Docker images
         run: |
-          docker save awiciroh/forcingprocessor:latest-arm64 -o /tmp/forcingprocessor-arm64.tar
+          docker save awiciroh/forcingprocessor:latest-arm64 | gzip > /tmp/forcingprocessor-arm64.tar.gz
           
       - name: Upload forcingprocessor image
         uses: actions/upload-artifact@v4
         with:
           name: forcingprocessor-arm64
-          path: /tmp/forcingprocessor-arm64.tar
+          path: /tmp/forcingprocessor-arm64.tar.gz
           retention-days: 1
-          compression-level: 0
+          compression-level: 0  # Already compressed
 
       - name: Clean up local tar files
         if: always()
-        run: rm -f /tmp/forcingprocessor-arm64.tar
+        run: rm -f /tmp/forcingprocessor-arm64.tar.gz
+
 
   test-arm64:
     needs: build-arm64
@@ -137,9 +139,9 @@ jobs:
           set -euo pipefail
           ls -lh /tmp/artifacts
           
-          # Retry docker load up to 3 times
+          # Load gzipped image
           for i in 1 2 3; do
-            if docker load -i /tmp/artifacts/forcingprocessor-arm64.tar; then
+            if gunzip -c /tmp/artifacts/forcingprocessor-arm64.tar.gz | docker load; then
               echo "Successfully loaded image on attempt $i"
               docker images | grep forcingprocessor
               break
@@ -154,18 +156,7 @@ jobs:
             fi
           done
 
-          
-      - name: Pre-download GPKG (VPU 09)
-        run: |
-          set -euo pipefail
-          mkdir -p tests/data
-          # Download the same GPKG file that test_forcingprocessor.py expects
-          curl -fL --retry 3 --retry-delay 2 \
-            -o tests/data/vpu-09_subset.gpkg \
-            "https://datastream-resources.s3.us-east-1.amazonaws.com/VPU_09/config/nextgen_VPU_09.gpkg"
-          [ -s tests/data/vpu-09_subset.gpkg ]
-          echo "GPKG file size: $(du -h tests/data/vpu-09_subset.gpkg | cut -f1)"
-          
+
       - name: Run ${{ matrix.test-suite.name }}
         run: |
           docker run --rm \
@@ -177,11 +168,11 @@ jobs:
             awiciroh/${{ matrix.test-suite.image }}:latest-arm64 \
             ${{ matrix.test-suite.command }}
             
-      - name: Clean up Docker image
-        if: always()
-        run: |
-          docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-arm64 || true
-          docker system prune -f
+      # - name: Clean up Docker image
+      #   if: always()
+      #   run: |
+      #     docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-arm64 || true
+      #     docker system prune -f
           
   cleanup-artifacts:
     needs: test-arm64
