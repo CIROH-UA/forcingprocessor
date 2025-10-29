@@ -40,21 +40,23 @@ jobs:
       - name: List built images
         run: docker images | grep forcingprocessor
 
+
       - name: Save Docker images
         run: |
-          docker save awiciroh/forcingprocessor:latest-arm64 -o /tmp/forcingprocessor-arm64.tar
+          docker save awiciroh/forcingprocessor:latest-arm64 | gzip > /tmp/forcingprocessor-arm64.tar.gz
           
       - name: Upload forcingprocessor image
         uses: actions/upload-artifact@v4
         with:
           name: forcingprocessor-arm64
-          path: /tmp/forcingprocessor-arm64.tar
+          path: /tmp/forcingprocessor-arm64.tar.gz
           retention-days: 1
-          compression-level: 0
+          compression-level: 0  # Already compressed
 
       - name: Clean up local tar files
         if: always()
-        run: rm -f /tmp/forcingprocessor-arm64.tar
+        run: rm -f /tmp/forcingprocessor-arm64.tar.gz
+
 
   test-arm64:
     needs: build-arm64
@@ -137,9 +139,9 @@ jobs:
           set -euo pipefail
           ls -lh /tmp/artifacts
           
-          # Retry docker load up to 3 times
+          # Load gzipped image
           for i in 1 2 3; do
-            if docker load -i /tmp/artifacts/forcingprocessor-arm64.tar; then
+            if gunzip -c /tmp/artifacts/forcingprocessor-arm64.tar.gz | docker load; then
               echo "Successfully loaded image on attempt $i"
               docker images | grep forcingprocessor
               break
