@@ -4,16 +4,17 @@ on:
   push:
     branches:
       - main
+      - fp_workflow
+      - trivy_scan
     paths:
+      - 'docker/**' 
       - 'src/forcingprocessor/**'
       - '!src/forcingprocessor/README.md'
   pull_request:
-    branches:
-      - main    
-    paths:      
+    paths:
+      - 'docker/**' 
       - 'src/forcingprocessor/**'
       - '!src/forcingprocessor/README.md'
-
 permissions:
   contents: read
   security-events: write
