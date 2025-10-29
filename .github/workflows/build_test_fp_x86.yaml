@@ -152,7 +152,6 @@ jobs:
           [ -s tests/data/vpu-09_subset.gpkg ]
           echo "GPKG file size: $(du -h tests/data/vpu-09_subset.gpkg | cut -f1)"
 
-
       - name: Run ${{ matrix.test-suite.name }}
         run: |
           docker run --rm \
