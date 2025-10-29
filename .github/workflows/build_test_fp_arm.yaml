@@ -155,17 +155,6 @@ jobs:
           done
 
           
-      - name: Pre-download GPKG (VPU 09)
-        run: |
-          set -euo pipefail
-          mkdir -p tests/data
-          # Download the same GPKG file that test_forcingprocessor.py expects
-          curl -fL --retry 3 --retry-delay 2 \
-            -o tests/data/vpu-09_subset.gpkg \
-            "https://datastream-resources.s3.us-east-1.amazonaws.com/VPU_09/config/nextgen_VPU_09.gpkg"
-          [ -s tests/data/vpu-09_subset.gpkg ]
-          echo "GPKG file size: $(du -h tests/data/vpu-09_subset.gpkg | cut -f1)"
-          
       - name: Run ${{ matrix.test-suite.name }}
         run: |
           docker run --rm \
@@ -177,11 +166,6 @@ jobs:
             awiciroh/${{ matrix.test-suite.image }}:latest-arm64 \
             ${{ matrix.test-suite.command }}
             
-      # - name: Clean up Docker image
-      #   if: always()
-      #   run: |
-      #     docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-arm64 || true
-      #     docker system prune -f
           
   cleanup-artifacts:
     needs: test-arm64
