@@ -64,7 +64,6 @@ jobs:
           name: forcingprocessor-arm64
           path: /tmp/forcingprocessor-arm64.tar.gz
           retention-days: 1
-          compression-level: 0 
 
       - name: Clean up local tar files
         if: always()

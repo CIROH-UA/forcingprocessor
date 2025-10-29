@@ -64,7 +64,6 @@ jobs:
           name: forcingprocessor-x86
           path: /tmp/forcingprocessor-x86.tar.gz
           retention-days: 1
-          compression-level: 0  # Already compressed
 
       - name: Clean up local tar files
         if: always()
