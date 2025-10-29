@@ -62,9 +62,9 @@ jobs:
             BRANCH_NAME="${{ github.ref_name }}"
           fi
 
-          sed -i "s/\${BRANCH_NAME}/$BRANCH_NAME/g" .github/executions/fp_ds_test_execution_arm.json
-          sed -i "s/\${DS_TAG}/$DS_TAG/g" .github/executions/fp_ds_test_execution_arm.json
-          sed -i "s/\${FP_TAG}/$FP_TAG/g" .github/executions/fp_ds_test_execution_arm.json
+          sed -i "s|\${BRANCH_NAME}|$BRANCH_NAME|g" .github/executions/fp_ds_test_execution_arm.json
+          sed -i "s|\${DS_TAG}|$DS_TAG|g" .github/executions/fp_ds_test_execution_arm.json
+          sed -i "s|\${FP_TAG}|$FP_TAG|g" .github/executions/fp_ds_test_execution_arm.json
           if [ "${{ github.event_name }}" != "workflow_dispatch" ] && ! git diff --name-only HEAD~1 HEAD | grep -q '^docker/Dockerfile\.forcingprocessor-deps$'; then
             sed -i "/docker-compose\.yml build forcingprocessor-deps/d" .github/executions/fp_ds_test_execution_arm.json
           fi
@@ -156,13 +156,24 @@ jobs:
             stepfunction-execution-history.json
             stepfunction-execution-details.json
           retention-days: 30
-
+          
       - name: Download build logs from S3
         if: always()
         run: |
+          # Download general build log
           aws s3 cp s3://ciroh-community-ngen-datastream/forcingprocessor/test/docker_build_log.txt $GITHUB_WORKSPACE/docker_build_log.txt || true
+          
+          # Download datastream test output
+          aws s3 cp s3://ciroh-community-ngen-datastream/forcingprocessor/test/datastream_test_output.txt $GITHUB_WORKSPACE/datastream_test_output.txt || true
+          
           if [ -f $GITHUB_WORKSPACE/docker_build_log.txt ]; then
+            echo "## Docker Build Log" >> $GITHUB_STEP_SUMMARY
             cat $GITHUB_WORKSPACE/docker_build_log.txt >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          if [ -f $GITHUB_WORKSPACE/datastream_test_output.txt ]; then
+            echo "## Datastream Test Output" >> $GITHUB_STEP_SUMMARY
+            cat $GITHUB_WORKSPACE/datastream_test_output.txt >> $GITHUB_STEP_SUMMARY
           fi
 
       - name: Upload build logs as artifact
@@ -170,10 +181,11 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: docker-build-logs-${{ github.run_number }}
-          path: docker_build_log.txt
+          path: |
+            docker_build_log.txt
+            datastream_test_output.txt
           if-no-files-found: ignore
           retention-days: 30
-          
 
       - name: Tear down infra
         if: always()
