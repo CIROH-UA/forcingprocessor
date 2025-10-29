@@ -15,18 +15,33 @@ yesterday = yesterday.strftime('%Y%m%d')
 test_dir = Path(__file__).parent
 data_dir = (test_dir/'data').resolve()
 forcings_dir = (data_dir/'forcings').resolve()
-pwd      = Path.cwd()
-pwd      = pwd
-data_dir = data_dir
-if os.path.exists(data_dir):
-    os.system(f"rm -rf {data_dir}")
-os.system(f"mkdir {data_dir}")
-pwd      = Path.cwd()
+pwd = Path.cwd()
+
+# Don't delete data_dir - only ensure it exists
+data_dir.mkdir(parents=True, exist_ok=True)
+
+geopackage_name = "vpu-09_subset.gpkg"
+gpkg_path = data_dir / geopackage_name
+
+# Only download if GPKG doesn't exist
+if not gpkg_path.exists() or gpkg_path.stat().st_size == 0:
+    import subprocess
+    print(f"Downloading GPKG to {gpkg_path}...")
+    result = subprocess.run(
+        ["curl", "-fL", "--retry", "3", "--retry-delay", "2",
+         "-o", str(gpkg_path),
+         "https://datastream-resources.s3.us-east-1.amazonaws.com/VPU_09/config/nextgen_VPU_09.gpkg"],
+        capture_output=True,
+        text=True,
+        check=True
+    )
+    print(f"GPKG downloaded: {gpkg_path.stat().st_size} bytes")
+
+pwd = Path.cwd()
 filenamelist = str((pwd/"filenamelist.txt").resolve())
 retro_filenamelist = str((pwd/"retro_filenamelist.txt").resolve())
-geopackage_name = "vpu-09_subset.gpkg"
-os.system(f"curl -o {os.path.join(data_dir,geopackage_name)} -L -O https://datastream-resources.s3.us-east-1.amazonaws.com/VPU_09/config/nextgen_VPU_09.gpkg")
-assert_file=(data_dir/f"forcings/VPU_09_forcings.nc").resolve()
+assert_file = (data_dir/f"forcings/VPU_09_forcings.nc").resolve()
+
 
 conf = {
     "forcing"  : {
