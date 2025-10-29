@@ -7,8 +7,8 @@ permissions:
   security-events: write
 
 jobs:
-  build-arm64:
-    runs-on: ubuntu-22.04-arm64
+  build-x86:
+    runs-on: ubuntu-latest
     steps:
       - name: Pre-cleanup workspace
         continue-on-error: true
@@ -28,14 +28,12 @@ jobs:
       - name: Build forcingprocessor-deps
         run: |
           cd docker
-          ARCH=aarch64 TAG=latest-arm64 \
-            docker compose -f docker-compose.yml build forcingprocessor-deps
+          TAG=latest-x86 docker compose -f docker-compose.yml build forcingprocessor-deps
             
       - name: Build forcingprocessor
         run: |
           cd docker
-          ARCH=aarch64 TAG=latest-arm64 \
-            docker compose -f docker-compose.yml build forcingprocessor
+          TAG=latest-x86 docker compose -f docker-compose.yml build forcingprocessor
             
       - name: List built images
         run: docker images | grep forcingprocessor
@@ -43,24 +41,24 @@ jobs:
 
       - name: Save Docker images
         run: |
-          docker save awiciroh/forcingprocessor:latest-arm64 | gzip > /tmp/forcingprocessor-arm64.tar.gz
+          docker save awiciroh/forcingprocessor:latest-x86 | gzip > /tmp/forcingprocessor-x86.tar.gz
           
       - name: Upload forcingprocessor image
         uses: actions/upload-artifact@v4
         with:
-          name: forcingprocessor-arm64
-          path: /tmp/forcingprocessor-arm64.tar.gz
+          name: forcingprocessor-x86
+          path: /tmp/forcingprocessor-x86.tar.gz
           retention-days: 1
           compression-level: 0  # Already compressed
 
       - name: Clean up local tar files
         if: always()
-        run: rm -f /tmp/forcingprocessor-arm64.tar.gz
+        run: rm -f /tmp/forcingprocessor-x86.tar.gz
 
 
-  test-arm64:
-    needs: build-arm64
-    runs-on: ubuntu-22.04-arm64
+  test-x86:
+    needs: build-x86
+    runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -130,7 +128,7 @@ jobs:
       - name: Download Docker image
         uses: actions/download-artifact@v4
         with:
-          name: forcingprocessor-arm64  
+          name: forcingprocessor-x86  
           path: /tmp/artifacts
 
 
@@ -141,7 +139,7 @@ jobs:
           
           # Load gzipped image
           for i in 1 2 3; do
-            if gunzip -c /tmp/artifacts/forcingprocessor-arm64.tar.gz | docker load; then
+            if gunzip -c /tmp/artifacts/forcingprocessor-x86.tar.gz | docker load; then
               echo "Successfully loaded image on attempt $i"
               docker images | grep forcingprocessor
               break
@@ -165,21 +163,21 @@ jobs:
             -e AWS_REGION=us-east-1 \
             -e AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }} \
             -e AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }} \
-            awiciroh/${{ matrix.test-suite.image }}:latest-arm64 \
+            awiciroh/${{ matrix.test-suite.image }}:latest-x86 \
             ${{ matrix.test-suite.command }}
             
       # - name: Clean up Docker image
       #   if: always()
       #   run: |
-      #     docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-arm64 || true
+      #     docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-x86 || true
       #     docker system prune -f
           
   cleanup-artifacts:
-    needs: test-arm64
-    runs-on: ubuntu-22.04-arm64
+    needs: test-x86
+    runs-on: ubuntu-latest
     if: always()
     steps:
       - name: Delete artifacts
         uses: geekyeggo/delete-artifact@v5
         with:
-          name: forcingprocessor-arm64
+          name: forcingprocessor-x86
