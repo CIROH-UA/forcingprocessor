@@ -177,11 +177,11 @@ jobs:
             awiciroh/${{ matrix.test-suite.image }}:latest-arm64 \
             ${{ matrix.test-suite.command }}
             
-      - name: Clean up Docker image
-        if: always()
-        run: |
-          docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-arm64 || true
-          docker system prune -f
+      # - name: Clean up Docker image
+      #   if: always()
+      #   run: |
+      #     docker rmi awiciroh/${{ matrix.test-suite.image }}:latest-arm64 || true
+      #     docker system prune -f
           
   cleanup-artifacts:
     needs: test-arm64
