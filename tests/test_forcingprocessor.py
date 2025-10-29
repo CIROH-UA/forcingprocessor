@@ -98,6 +98,7 @@ def test_nomads_prod():
     conf['run']['collect_stats'] = True # test metadata generation once
     prep_ngen_data(conf)
     conf['run']['collect_stats'] = False
+    assert_file = (data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)       
 
@@ -117,6 +118,7 @@ def test_nwm_google_apis():
     nwmurl_conf["urlbaseinput"] = 3
     generate_nwmfiles(nwmurl_conf)          
     prep_ngen_data(conf)
+    assert_file = (data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)       
 
@@ -324,7 +326,4 @@ def test_parquet_output_type():
     prep_ngen_data(conf)
     assert_file=(data_dir/f"forcings/cat-1496145.parquet").resolve()
     assert assert_file.exists()
-    os.remove(assert_file)        
-
-
-    
+    os.remove(assert_file)
