@@ -85,7 +85,7 @@ jobs:
           
           - name: "Google Cloud Storage"
             image: "forcingprocessor"
-            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k test_nwm_google_apis or test_google or test_gs or test_gcs"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_nwm_google_apis or test_google or test_gs or test_gcs'"
           
           - name: "NOAA NWM PDS - Base HTTPS"
             image: "forcingprocessor"
