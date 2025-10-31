@@ -52,14 +52,14 @@ conf = {
     },
 
     "storage":{
-        "output_path"       : "s3://ciroh-community-ngen-datastream/test/nrds_fp_test",
+        "output_path"       : "s3://ciroh-community-ngen-datastream/test/pytest_fp/nrds_fp_test",
         "output_file_type"  : ["netcdf"]
     },    
 
     "run" : {
-        "verbose"       : False,
+        "verbose"       : True,
         "collect_stats" : False,
-        "nprocs"         : 1
+        "nprocs"        : 3 # github host runners have min 4 cores
     }
     }
 
@@ -72,8 +72,8 @@ nwmurl_conf = {
         "geoinput"     : 1,
         "meminput"     : 0,
         "urlbaseinput" : 7,
-        "fcst_cycle"   : [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
-        "lead_time"    : [1]
+        "fcst_cycle"   : [1],
+        "lead_time"    : [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]
     }
 
 s3 = boto3.client("s3")
@@ -104,7 +104,7 @@ def test_nrds_fp(clean_s3_test):
     prep_ngen_data(conf)
 
     for vpu in vpus:
-        url = f"s3://ciroh-community-ngen-datastream/test/nrds_fp_test/ngen.t01z.short_range.forcing.f001_f001.VPU_{vpu}.nc"
+        url = f"s3://ciroh-community-ngen-datastream/test/pytest_fp/nrds_fp_test/ngen.t01z.short_range.forcing.f001_f018.VPU_{vpu}.nc"
         print(f"Checking for {url}")
         assert s3_object_exists(url)
 
