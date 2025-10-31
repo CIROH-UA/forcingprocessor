@@ -82,6 +82,7 @@ def test_nomads_prod(download_weight_file,clean_forcings_metadata_dirs):
     conf['run']['collect_stats'] = True # test metadata generation once
     prep_ngen_data(conf)
     conf['run']['collect_stats'] = False
+    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)       
 
@@ -297,17 +298,28 @@ def test_csv_output_type(download_weight_file,clean_forcings_metadata_dirs):
     os.remove(assert_file)   
 
 def test_parquet_output_type(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute   
-    nwmurl_conf["runinput"] = 1 
-    nwmurl_conf["urlbaseinput"] = 8
-    nwmurl_conf["fcst_cycle"] = [0]
     generate_nwmfiles(nwmurl_conf)  
     conf['storage']['output_file_type'] = ["parquet"]      
     prep_ngen_data(conf)
     assert_file=(data_dir/f"forcings/cat-1496145.parquet").resolve()
     assert assert_file.exists()
-    os.remove(assert_file)        
+    os.remove(assert_file)       
+
+def test_tar_output_type(download_weight_file,clean_forcings_metadata_dirs):
+    generate_nwmfiles(nwmurl_conf)  
+    conf['storage']['output_file_type'] = ["tar"]      
+    prep_ngen_data(conf)
+    assert_file=(data_dir/f"forcings/VPU_09_forcings.tar.gz").resolve()
+    assert assert_file.exists()
+    os.remove(assert_file)       
+
+def test_netcdf_output_type(download_weight_file,clean_forcings_metadata_dirs):
+    generate_nwmfiles(nwmurl_conf)  
+    conf['storage']['output_file_type'] = ["netcdf"]      
+    prep_ngen_data(conf)
+    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert assert_file.exists()
+    os.remove(assert_file)       
 
 
     

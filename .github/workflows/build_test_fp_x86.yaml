@@ -79,53 +79,57 @@ jobs:
       max-parallel: 10
       matrix:
         test-suite:
-          - name: "NOMADS & Basic Tests"
+          - name: "NOMADS"
             image: "forcingprocessor"
-            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_nomads_prod or test_nwm_google_apis'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k test_nomads"
           
           - name: "Google Cloud Storage"
             image: "forcingprocessor"
-            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_google_cloud_storage or test_gs or test_gcs'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k test_nwm_google_apis test_google test_gs test_gcs"
           
           - name: "NOAA NWM PDS - Base HTTPS"
             image: "forcingprocessor"
-            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https and not short_range and not medium_range and not analysis_assim'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_noaa_nwm_pds_https and not short_range and not medium_range and not analysis_assim'"
           
           - name: "NOAA NWM - Short Range"
             image: "forcingprocessor"
-            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_short_range'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_noaa_nwm_pds_https_short_range'"
           
           - name: "NOAA NWM - Medium Range"
             image: "forcingprocessor"
-            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_medium_range'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_noaa_nwm_pds_https_medium_range'"
           
           - name: "NOAA NWM - Analysis Assim"
             image: "forcingprocessor"
-            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_analysis_assim and not extend'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_noaa_nwm_pds_https_analysis_assim and not extend'"
           
           - name: "NOAA NWM - Analysis Assim Extend"
             image: "forcingprocessor"
-            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_https_analysis_assim_extend'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_noaa_nwm_pds_https_analysis_assim_extend'"
           
           - name: "NOAA NWM - S3 Access"
             image: "forcingprocessor"
-            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_noaa_nwm_pds_s3'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_noaa_nwm_pds_s3'"
           
           - name: "Retrospective v2.1"
             image: "forcingprocessor"
-            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_retro_2_1'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_retro_2_1'"
           
           - name: "Retrospective v3.0"
             image: "forcingprocessor"
-            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_retro_3_0'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_retro_3_0'"
           
           - name: "Output Formats"
             image: "forcingprocessor"
-            command: "pytest -vv  tests/test_forcingprocessor.py -k 'test_csv_output_type or test_parquet_output_type'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_csv_output_type or test_parquet_output_type or test_tar_output_type or test_netcdf_output_type'"
           
           - name: "Plotting & S3 Output"
             image: "forcingprocessor"
-            command: "pytest -vv tests/test_forcingprocessor.py -k 'test_plotting or test_s3_output'"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 -k 'test_plotting or test_s3_output'"
+
+          - name: "Weight Generation"
+            image: "forcingprocessor"
+            command: "pytest -q --tb=short --disable-warnings --maxfail=1 tests/test_hf2ds.py"            
 
     name: "${{ matrix.test-suite.name }}"
     
