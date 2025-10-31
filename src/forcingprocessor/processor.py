@@ -468,7 +468,7 @@ def write_data(
 
     return forcing_cat_ids, dfs, filenames, [file_size_MB], [file_zipped_size_MB], tar_list
 
-def write_tar(tar_buffs,jcatchunk,catchments,filenames):
+def write_tar(tar_buffs,jcatchunk,catchments,filenames,storage_type,forcing_path):
     """
     Write DataFrames to a tar archive and upload to S3 or save locally as a compressed tar file.
 
@@ -477,6 +477,8 @@ def write_tar(tar_buffs,jcatchunk,catchments,filenames):
         jcatchunk: Identifier for the chunk of catchments.
         catchments: List of catchments.
         filenames: List of filenames corresponding to the DataFrames.
+        storage_type: string s3 or local
+        forcing_path: string s3 uri or local path
 
     Returns:
         None
@@ -541,7 +543,9 @@ def multiprocess_write_tars(dfs,catchments,filenames,tar_buffs):
         tar_buffs_list,
         jcatchunk_list,
         catchments_list,
-        filenames_list      
+        filenames_list,
+        [storage_type for x in range(nprocs)],
+        [forcing_path for x in range(nprocs)]
         ):
             pass
 
@@ -780,7 +784,7 @@ def prep_ngen_data(conf):
         if not os.path.exists(metaf_path):   os.system(f"mkdir {metaf_path}")
         conf_path = Path
         with open(f"{metaf_path}/conf.json", 'w') as f:
-            json.dump(conf, f)
+            json.dump(conf, f,indent=4)
         cp_cmd = f'cp {nwm_file} {metaf_path}'
         os.system(cp_cmd)
         weights_df.to_parquet(os.path.join(metaf_path,"weights.parquet"))
@@ -795,7 +799,7 @@ def prep_ngen_data(conf):
         filenamelist_path = f"{key}/{os.path.basename(nwm_file)}"
         s3 = boto3.client("s3")          
         s3.put_object(
-                Body=json.dumps(conf),
+                Body=json.dumps(conf,indent=4),
                 Bucket=bucket,
                 Key=conf_path
             )
