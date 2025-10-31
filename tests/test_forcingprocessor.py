@@ -125,7 +125,7 @@ def test_gs(download_weight_file,clean_forcings_metadata_dirs):
     assert assert_file.exists()
     os.remove(assert_file)       
 
-def test_gcs():
+def test_gcs(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf['start_date'] = "202407100100"
     nwmurl_conf['end_date']   = "202407100100" 
     nwmurl_conf["urlbaseinput"] = 6
