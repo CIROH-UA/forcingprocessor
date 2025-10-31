@@ -21,28 +21,34 @@ permissions:
   contents: read
 jobs:
   test-forcingprocessor:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: [3.9]
+    runs-on: ${{ matrix.os }}
+
     steps:
-    - uses: actions/checkout@v3
-    - name: Set up Python 3.9
-      uses: actions/setup-python@v3
-      with:
-        python-version: "3.9"
+      - uses: actions/checkout@v3
 
-    - name: Configure AWS
-      run: |
-        aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws configure set region us-east-1           
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e .
-        pip install pytest
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Test with pytest
-      run: |
-        python -m pytest -vv tests/test_plotter.py
-        python -m pytest -vv -k test_plotting
+      - name: Configure AWS
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region us-east-1           
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
+
+      - name: Test with pytest
+        run: |
+          python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_forcings_plot
+          python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_plotting
 

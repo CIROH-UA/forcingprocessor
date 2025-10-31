@@ -6,12 +6,11 @@
 # Test the NRDS forcing processing by inputing all 21 VPU's weight files, 
 # processing a single nwm forcing file, and the writing to a test location in the producting bucket.
 
-import shutil, os
+import os
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from forcingprocessor.processor import prep_ngen_data
 from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
-import pytest
 from forcingprocessor.utils import vpus
 import boto3
 from botocore.exceptions import ClientError
@@ -39,12 +38,6 @@ filenamelist = str((pwd/"filenamelist.txt").resolve())
 weight_files = [f"https://ciroh-community-ngen-datastream.s3.amazonaws.com/v2.2_resources/weights/nextgen_VPU_{x}_weights.json" for x in vpus]
 local_weight_files = [str((data_dir/f"nextgen_VPU_{x}_weights.json").resolve()) for x in vpus]
 
-# download weight files
-for j, wf in enumerate(weight_files):
-    local_file = local_weight_files[j]
-    if not os.path.exists(local_file):
-        os.system(f"wget {wf} -P {data_dir}")
-
 conf = {
     "forcing"  : {
         "nwm_file"   : filenamelist,
@@ -52,14 +45,14 @@ conf = {
     },
 
     "storage":{
-        "output_path"       : "s3://ciroh-community-ngen-datastream/test/nrds_fp_test",
+        "output_path"       : "s3://ciroh-community-ngen-datastream/test/pytest_fp/nrds_fp_test",
         "output_file_type"  : ["netcdf"]
     },    
 
     "run" : {
-        "verbose"       : False,
+        "verbose"       : True,
         "collect_stats" : False,
-        "nprocs"         : 1
+        "nprocs"        : 3 # github host runners have min 4 cores
     }
     }
 
@@ -72,16 +65,11 @@ nwmurl_conf = {
         "geoinput"     : 1,
         "meminput"     : 0,
         "urlbaseinput" : 7,
-        "fcst_cycle"   : [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18],
-        "lead_time"    : [1]
+        "fcst_cycle"   : [1],
+        "lead_time"    : [1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]
     }
 
 s3 = boto3.client("s3")
-
-@pytest.fixture(autouse=True)
-def clean_dir():
-    if os.path.exists(forcings_dir):
-        shutil.rmtree(forcings_dir)
 
 def s3_object_exists(url: str) -> bool:
     m = re.match(r"s3://([^/]+)/(.+)", url)
@@ -98,13 +86,13 @@ def s3_object_exists(url: str) -> bool:
         else:
             raise
 
-def test_nrds_fp(clean_s3_test):
+def test_nrds_fp(clean_s3_nrds_test, download_weights):
     generate_nwmfiles(nwmurl_conf)  
     conf['run']['collect_stats'] = False 
     prep_ngen_data(conf)
 
     for vpu in vpus:
-        url = f"s3://ciroh-community-ngen-datastream/test/nrds_fp_test/ngen.t01z.short_range.forcing.f001_f001.VPU_{vpu}.nc"
+        url = f"s3://ciroh-community-ngen-datastream/test/pytest_fp/nrds_fp_test/ngen.t01z.short_range.forcing.f001_f018.VPU_{vpu}.nc"
         print(f"Checking for {url}")
         assert s3_object_exists(url)
 
