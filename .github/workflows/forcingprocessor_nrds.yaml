@@ -24,7 +24,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: [awk -F'>=' '/^python_requires/ {print $2}' setup.cfg | tr -d ' ']
+        python-version: [3.9]
     runs-on: ${{ matrix.os }}
 
     steps:
@@ -54,4 +54,4 @@ jobs:
 
       - name: Test with pytest
         run: |
-          python -m pytest -v -s tests/test_nrds_fp.py
+          python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_nrds_fp

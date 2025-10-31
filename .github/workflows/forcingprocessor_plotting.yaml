@@ -49,6 +49,6 @@ jobs:
 
       - name: Test with pytest
         run: |
-          python -m pytest -v -s tests/test_plotter.py
-          python -m pytest -v -s -k test_plotting
+          python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_forcings_plot
+          python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_plotting
 

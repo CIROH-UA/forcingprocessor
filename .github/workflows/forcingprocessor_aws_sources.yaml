@@ -49,12 +49,17 @@ jobs:
 
       - name: Test with pytest
         run: |
-          python -m pytest -v -s -k test_noaa_nwm_pds_https 
-          python -m pytest -v -s -k test_noaa_nwm_pds_https_short_range 
-          python -m pytest -v -s -k test_noaa_nwm_pds_https_medium_range
-          python -m pytest -v -s -k test_noaa_nwm_pds_https_analysis_assim
-          python -m pytest -v -s -k test_noaa_nwm_pds_https_analysis_assim_extend
-          python -m pytest -v -s -k test_noaa_nwm_pds_s3 
-          python -m pytest -v -s -k test_retro_2_1_https 
-          python -m pytest -v -s -k test_retro_2_1_s3
-          python -m pytest -v -s -k test_retro_3_0          
+          python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_noaa_nwm_pds_https 
+          # These all are matched with -k test_noaa_nwm_pds_https 
+          # python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_noaa_nwm_pds_https_short_range 
+          # python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_noaa_nwm_pds_https_medium_range
+          # python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_noaa_nwm_pds_https_analysis_assim
+          # python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_noaa_nwm_pds_https_analysis_assim_extend
+
+          python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_noaa_nwm_pds_s3 
+
+          python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_retro
+          # These all are matched with -k test_retro 
+          # python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_retro_2_1_https 
+          # python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_retro_2_1_s3
+          # python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_retro_3_0          

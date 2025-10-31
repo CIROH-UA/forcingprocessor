@@ -20,9 +20,6 @@ if os.path.exists(DATA_DIR):
     os.system(f"rm -rf {DATA_DIR}")
 os.system(f"mkdir {DATA_DIR}")
 
-
-os.system(f"curl -o {os.path.join(DATA_DIR,geopackage_name)} -L -O https://datastream-resources.s3.us-east-1.amazonaws.com/VPU_09/config/nextgen_VPU_09.gpkg")
-
 conf = {
     "forcing"  : {
         "nwm_file"   : filenamelist,
@@ -70,7 +67,7 @@ nwmurl_conf = {
 #         os.system(f'rm -rf {str(DATA_DIR)}')
 #     os.system(f'mkdir {str(DATA_DIR)}')
 
-def test_forcings_plot():
+def test_forcings_plot(download_files):
     nwmurl_conf['start_date'] = date + hourminute
     nwmurl_conf['end_date']   = date + hourminute    
     nwmurl_conf["urlbaseinput"] = 7    

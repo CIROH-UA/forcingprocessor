@@ -6,12 +6,11 @@
 # Test the NRDS forcing processing by inputing all 21 VPU's weight files, 
 # processing a single nwm forcing file, and the writing to a test location in the producting bucket.
 
-import shutil, os
+import os
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from forcingprocessor.processor import prep_ngen_data
 from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
-import pytest
 from forcingprocessor.utils import vpus
 import boto3
 from botocore.exceptions import ClientError
@@ -38,12 +37,6 @@ filenamelist = str((pwd/"filenamelist.txt").resolve())
 
 weight_files = [f"https://ciroh-community-ngen-datastream.s3.amazonaws.com/v2.2_resources/weights/nextgen_VPU_{x}_weights.json" for x in vpus]
 local_weight_files = [str((data_dir/f"nextgen_VPU_{x}_weights.json").resolve()) for x in vpus]
-
-# download weight files
-for j, wf in enumerate(weight_files):
-    local_file = local_weight_files[j]
-    if not os.path.exists(local_file):
-        os.system(f"wget {wf} -P {data_dir}")
 
 conf = {
     "forcing"  : {
@@ -78,11 +71,6 @@ nwmurl_conf = {
 
 s3 = boto3.client("s3")
 
-@pytest.fixture(autouse=True)
-def clean_dir():
-    if os.path.exists(forcings_dir):
-        shutil.rmtree(forcings_dir)
-
 def s3_object_exists(url: str) -> bool:
     m = re.match(r"s3://([^/]+)/(.+)", url)
     if not m:
@@ -98,7 +86,7 @@ def s3_object_exists(url: str) -> bool:
         else:
             raise
 
-def test_nrds_fp(clean_s3_test):
+def test_nrds_fp(clean_s3_nrds_test, download_weights):
     generate_nwmfiles(nwmurl_conf)  
     conf['run']['collect_stats'] = False 
     prep_ngen_data(conf)

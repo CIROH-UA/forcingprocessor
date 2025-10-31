@@ -29,7 +29,6 @@ def test_gpkg_v22():
     weights,_ = hf2ds(["https://communityhydrofabric.s3.us-east-1.amazonaws.com/hydrofabrics/community/VPU/vpu-09_subset.gpkg"],raster,1)
     assert len(weights) > 0
 
-
 def test_multiple_parquet_v21():
     print(f"https://lynker-spatial.s3-us-west-2.amazonaws.com/hydrofabric/{HF_VERSION}/nextgen/conus_forcing-weights/vpuid%3D09/part-0.parquet has moved!!!")
     # os.system(f"curl -o {parq_path} -L -O https://lynker-spatial.s3-us-west-2.amazonaws.com/hydrofabric/{HF_VERSION}/nextgen/conus_forcing-weights/vpuid%3D09/part-0.parquet")
