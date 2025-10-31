@@ -251,9 +251,9 @@ def forcing_grid2catchment(nwm_files: list,
     if ii_verbose: print(f'Process #{id} completed data extraction, returning data to primary process',flush=True)
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
-def multiprocess_write(data,t_ax,catchments,nprocs,out_path):
+def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
     """
-    Sets up the process pool for write_data.
+    Sets up the process pool for write_data_df.
 
     Parameters:
         data (numpy.ndarray): 3D array containing the data to be written.
@@ -322,7 +322,7 @@ def multiprocess_write(data,t_ax,catchments,nprocs,out_path):
     tar_list = []
     with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
          for results in pool.map(
-        write_data,
+        write_data_df,
         worker_data_list,
         worker_time_list,
         worker_catchment_list,
@@ -359,7 +359,7 @@ def multiprocess_write(data,t_ax,catchments,nprocs,out_path):
 
     return flat_ids, flat_dfs, flat_filenames, flat_file_sizes, flat_file_sizes_zipped, flat_tar
 
-def write_data(
+def write_data_df(
         data,
         t_ax,
         catchments,
@@ -510,7 +510,7 @@ def write_tar(tar_buffs,jcatchunk,catchments,filenames,storage_type,forcing_path
                 info.size = len(jbuff.getbuffer())
                 jtar.addfile(info, jbuff)     
 
-def multiprocess_write_tars(dfs,catchments,filenames,tar_buffs):  
+def multiprocess_write_tar(dfs,catchments,filenames,tar_buffs):  
     """
     Write DataFrames to tar archives using multiprocessing.
 
@@ -537,6 +537,8 @@ def multiprocess_write_tars(dfs,catchments,filenames,tar_buffs):
         filenames_list.append(filenames[i:k]) 
         i=k      
 
+    njobs = len(catchments)
+
     with cf.ProcessPoolExecutor(max_workers=min(len(catchments),nprocs)) as pool:
         for results in pool.map(
         write_tar,
@@ -544,8 +546,8 @@ def multiprocess_write_tars(dfs,catchments,filenames,tar_buffs):
         jcatchunk_list,
         catchments_list,
         filenames_list,
-        [storage_type for x in range(nprocs)],
-        [forcing_path for x in range(nprocs)]
+        [storage_type for x in range(njobs)],
+        [forcing_path for x in range(njobs)]
         ):
             pass
 
@@ -616,16 +618,18 @@ def multiprocess_write_netcdf(data:np.ndarray, jcatchment_dict:dict, t_ax:np.nda
             filenames.append(f'ngen.{FCST_CYCLE}z.{URLBASE}.forcing.{LEAD_START}_{LEAD_END}.{jvpu}.nc')
         i=k      
 
+    njobs = len(jcatchment_dict)
+
     netcdf_cat_file_sizes = []
-    with cf.ProcessPoolExecutor(max_workers=min(len(jcatchment_dict),nprocs)) as pool:
+    with cf.ProcessPoolExecutor(max_workers=min(njobs,nprocs)) as pool:
         for results in pool.map(
             write_netcdf,
             data_list, 
-            [t_ax for x in range(nprocs)],
+            [t_ax for x in range(njobs)],
             catchments_list,
-            [forcing_path for x in range(nprocs)],
+            [forcing_path for x in range(njobs)],
             filenames,
-            [storage_type for x in range(nprocs)]
+            [storage_type for x in range(njobs)]
             ):
             netcdf_cat_file_sizes.append(results)
 
@@ -886,7 +890,8 @@ def prep_ngen_data(conf):
         netcdf_cat_file_sizes_MB = multiprocess_write_netcdf(data_array, jcatchment_dict, t_ax)
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)  
-    forcing_cat_ids, dfs, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write(data_array,t_ax,list(weights_df.index),nprocs,forcing_path)
+    if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):
+        forcing_cat_ids, dfs, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(data_array,t_ax,list(weights_df.index),nprocs,forcing_path)
 
     write_time += time.perf_counter() - t0    
     write_rate = ncatchments / write_time
@@ -1000,7 +1005,7 @@ def prep_ngen_data(conf):
         log_time("TAR_START", log_file)
         if ii_verbose: print(f'\nWriting tarball...',flush=True)
         t0000 = time.perf_counter()
-        multiprocess_write_tars(dfs,jcatchment_dict,filenames,tar_buffs)    
+        multiprocess_write_tar(dfs,jcatchment_dict,filenames,tar_buffs)    
         tar_time = time.perf_counter() - t0000
         log_time("TAR_END", log_file)
 
