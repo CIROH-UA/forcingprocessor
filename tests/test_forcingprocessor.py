@@ -74,7 +74,7 @@ def clean_dir(autouse=True):
     if os.path.exists(forcings_dir):
         os.system(f'rm -rf {str(forcings_dir)}')
 
-def test_nomads_prod():
+def test_nomads_prod(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf['start_date'] = date + hourminute
     nwmurl_conf['end_date']   = date + hourminute    
     nwmurl_conf["urlbaseinput"] = 1
@@ -85,17 +85,17 @@ def test_nomads_prod():
     assert assert_file.exists()
     os.remove(assert_file)       
 
-def test_nomads_post_processed():
-    assert False, f'test_nomads_post_processed() is BROKEN - https://github.com/CIROH-UA/nwmurl/issues/62'
-    nwmurl_conf['start_date'] = "202408240000"
-    nwmurl_conf['end_date']   = "202408241700"
-    nwmurl_conf["urlbaseinput"] = 2
-    generate_nwmfiles(nwmurl_conf)          
-    prep_ngen_data(conf)
-    assert assert_file.exists()
-    os.remove(assert_file)    
+# def test_nomads_post_processed(download_weight_file,clean_forcings_metadata_dirs):
+#     assert False, f'test_nomads_post_processed() is BROKEN - https://github.com/CIROH-UA/nwmurl/issues/62'
+#     nwmurl_conf['start_date'] = "202408240000"
+#     nwmurl_conf['end_date']   = "202408241700"
+#     nwmurl_conf["urlbaseinput"] = 2
+#     generate_nwmfiles(nwmurl_conf)          
+#     prep_ngen_data(conf)
+#     assert assert_file.exists()
+#     os.remove(assert_file)    
 
-def test_nwm_google_apis():
+def test_nwm_google_apis(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf['start_date'] = date + hourminute
     nwmurl_conf['end_date']   = date + hourminute    
     nwmurl_conf["urlbaseinput"] = 3
@@ -104,7 +104,7 @@ def test_nwm_google_apis():
     assert assert_file.exists()
     os.remove(assert_file)       
 
-def test_google_cloud_storage():
+def test_google_cloud_storage(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf['start_date'] = "202407100100"
     nwmurl_conf['end_date']   = "202407100100" 
     nwmurl_conf["urlbaseinput"] = 4
@@ -208,15 +208,15 @@ def test_noaa_nwm_pds_s3(download_weight_file,clean_forcings_metadata_dirs):
     assert assert_file.exists()
     os.remove(assert_file)            
 
-def test_ciroh_zarr():
-    assert False, "Not implemented"
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
-    nwmurl_conf["urlbaseinput"] = 9
-    generate_nwmfiles(nwmurl_conf)          
-    prep_ngen_data(conf)
-    assert assert_file.exists()
-    os.remove(assert_file)        
+# def test_ciroh_zarr():
+#     assert False, "Not implemented"
+#     nwmurl_conf['start_date'] = date + hourminute
+#     nwmurl_conf['end_date']   = date + hourminute    
+#     nwmurl_conf["urlbaseinput"] = 9
+#     generate_nwmfiles(nwmurl_conf)          
+#     prep_ngen_data(conf)
+#     assert assert_file.exists()
+#     os.remove(assert_file)        
 
 def test_retro_2_1_https(download_weight_file,clean_forcings_metadata_dirs):
     conf['forcing']['nwm_file'] = retro_filenamelist
@@ -236,16 +236,16 @@ def test_retro_2_1_s3(download_weight_file,clean_forcings_metadata_dirs):
     assert assert_file.exists()
     os.remove(assert_file)               
 
-def test_retro_ciroh_zarr():
-    assert False, "Not implemented"
-    conf['forcing']['nwm_file'] = retro_filenamelist
-    nwmurl_conf_retro["urlbaseinput"] = 3
-    generate_nwmfiles(nwmurl_conf_retro)
-    prep_ngen_data(conf)
-    assert assert_file.exists()
-    os.remove(assert_file)          
+# def test_retro_ciroh_zarr():
+#     assert False, "Not implemented"
+#     conf['forcing']['nwm_file'] = retro_filenamelist
+#     nwmurl_conf_retro["urlbaseinput"] = 3
+#     generate_nwmfiles(nwmurl_conf_retro)
+#     prep_ngen_data(conf)
+#     assert assert_file.exists()
+#     os.remove(assert_file)          
 
-def test_retro_3_0():
+def test_retro_3_0(download_weight_file,clean_forcings_metadata_dirs):
     conf['forcing']['nwm_file'] = retro_filenamelist
     nwmurl_conf_retro["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf_retro)
@@ -254,8 +254,10 @@ def test_retro_3_0():
     assert assert_file.exists()
     os.remove(assert_file)          
 
-def test_plotting(download_weight_file,clean_forcings_metadata_dirs):
+def test_plotting(download_gpkg,clean_forcings_metadata_dirs):
+    geopackage_name = "vpu-09_subset.gpkg"
     conf['forcing']['nwm_file'] = retro_filenamelist
+    conf['forcing']['gpkg_file'] = os.path.join(data_dir,geopackage_name)
     conf['plot'] = {}
     conf['plot']['nts'] = 1
     conf['plot']['ngen_vars'] = [
@@ -271,6 +273,8 @@ def test_plotting(download_weight_file,clean_forcings_metadata_dirs):
 
 def test_s3_output(download_weight_file,clean_forcings_metadata_dirs,clean_s3_test):
     test_bucket = "ciroh-community-ngen-datastream"
+    if 'plot' in conf.keys():
+        conf.pop('plot')
     conf['forcing']['nwm_file'] = retro_filenamelist
     conf['storage']['output_path'] = f's3://{test_bucket}/test/pytest_fp'
     conf['storage']['output_file_type'] = ["netcdf"]
