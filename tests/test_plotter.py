@@ -67,7 +67,7 @@ nwmurl_conf = {
 #         os.system(f'rm -rf {str(DATA_DIR)}')
 #     os.system(f'mkdir {str(DATA_DIR)}')
 
-def test_forcings_plot(download_files):
+def test_forcings_plot(download_gpkg):
     nwmurl_conf['start_date'] = date + hourminute
     nwmurl_conf['end_date']   = date + hourminute    
     nwmurl_conf["urlbaseinput"] = 7    

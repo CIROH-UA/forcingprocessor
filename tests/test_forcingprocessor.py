@@ -114,7 +114,7 @@ def test_google_cloud_storage(download_weight_file,clean_forcings_metadata_dirs)
     assert assert_file.exists()
     os.remove(assert_file)       
 
-def test_gs():
+def test_gs(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf['start_date'] = date + hourminute
     nwmurl_conf['end_date']   = date + hourminute    
     nwmurl_conf["urlbaseinput"] = 5
