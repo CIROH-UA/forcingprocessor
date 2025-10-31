@@ -102,7 +102,7 @@ def test_nwm_google_apis(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf["urlbaseinput"] = 3
     generate_nwmfiles(nwmurl_conf)          
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/VPU_09_forcings.nc").resolve()
+    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)       
 
