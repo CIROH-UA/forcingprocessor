@@ -49,6 +49,6 @@ jobs:
 
       - name: Test with pytest
         run: |
-          python -m pytest -vv tests/test_plotter.py
-          python -m pytest -vv -k test_plotting
+          python -m pytest -v -s tests/test_plotter.py
+          python -m pytest -v -s -k test_plotting
 

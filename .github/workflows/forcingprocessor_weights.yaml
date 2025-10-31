@@ -49,4 +49,4 @@ jobs:
 
       - name: Test with hf2ds
         run: |
-          python -m pytest -vv tests/test_hf2ds.py
+          python -m pytest -v -s tests/test_hf2ds.py

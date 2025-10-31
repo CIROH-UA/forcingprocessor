@@ -20,36 +20,38 @@ on:
 permissions:
   contents: read
 jobs:
-  test-forcingprocessor-nrds:
-    runs-on: ubuntu-latest
-    
+  test-forcingprocessor:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        python-version: [awk -F'>=' '/^python_requires/ {print $2}' setup.cfg | tr -d ' ']
+    runs-on: ${{ matrix.os }}
+
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v3
 
-    - name: Extract Python version from setup.cfg
-      id: pyver
-      run: |
-        # Read python_requires from setup.cfg
-        VERSION=$(awk -F'>=' '/^python_requires/ {print $2}' setup.cfg | tr -d ' ')
-        echo "version=$VERSION" >> $GITHUB_OUTPUT
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v3
+        with:
+          python-version: ${{ matrix.python-version }}
 
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: ${{ steps.pyver.outputs.version }}
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ steps.pyver.outputs.version }}
 
-    - name: Configure AWS
-      run: |
-        aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws configure set region us-east-1           
-        
-    - name: Install dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -e .
-        pip install pytest
+      - name: Configure AWS
+        run: |
+          aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws configure set region us-east-1           
+          
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e .
+          pip install pytest
 
-    - name: Test with pytest
-      run: |
-        python -m pytest -vv tests/test_nrds_fp.py
+      - name: Test with pytest
+        run: |
+          python -m pytest -v -s tests/test_nrds_fp.py
