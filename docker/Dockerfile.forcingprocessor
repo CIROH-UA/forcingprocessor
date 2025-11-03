@@ -2,5 +2,6 @@ ARG TAG_NAME=latest-x86
 FROM awiciroh/forcingprocessor-deps:${TAG_NAME} AS forcingprocessor_base
 COPY . /forcingprocessor/
 RUN pip3 install -e /forcingprocessor && \
+    pip3 install pytest && \
     groupadd -r mygroup && useradd -r -g mygroup myuser && \
     chown -R myuser:mygroup /forcingprocessor
