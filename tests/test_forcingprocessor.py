@@ -10,18 +10,16 @@ HF_VERSION="v2.2"
 date = datetime.now(timezone.utc)
 date = date.strftime('%Y%m%d')
 hourminute  = '0000'
+TODAY_START = date + hourminute
 yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
 yesterday = yesterday.strftime('%Y%m%d')
 test_dir = Path(__file__).parent
 data_dir = (test_dir/'data').resolve()
 forcings_dir = (data_dir/'forcings').resolve()
 pwd      = Path.cwd()
-pwd      = pwd
-data_dir = data_dir
 if os.path.exists(data_dir):
     os.system(f"rm -rf {data_dir}")
 os.system(f"mkdir {data_dir}")
-pwd      = Path.cwd()
 filenamelist = str((pwd/"filenamelist.txt").resolve())
 retro_filenamelist = str((pwd/"retro_filenamelist.txt").resolve())
 weights_name = "nextgen_VPU_09_weights.json"
@@ -75,8 +73,8 @@ def clean_dir(autouse=True):
         os.system(f'rm -rf {str(forcings_dir)}')
 
 def test_nomads_prod(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START    
     nwmurl_conf["urlbaseinput"] = 1
     generate_nwmfiles(nwmurl_conf)  
     conf['run']['collect_stats'] = True # test metadata generation once
@@ -97,8 +95,8 @@ def test_nomads_prod(download_weight_file,clean_forcings_metadata_dirs):
 #     os.remove(assert_file)    
 
 def test_nwm_google_apis(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START    
     nwmurl_conf["urlbaseinput"] = 3
     generate_nwmfiles(nwmurl_conf)          
     prep_ngen_data(conf)
@@ -117,8 +115,8 @@ def test_google_cloud_storage(download_weight_file,clean_forcings_metadata_dirs)
     os.remove(assert_file)       
 
 def test_gs(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START    
     nwmurl_conf["urlbaseinput"] = 5
     generate_nwmfiles(nwmurl_conf)   
     assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()       
@@ -137,8 +135,8 @@ def test_gcs(download_weight_file,clean_forcings_metadata_dirs):
     os.remove(assert_file)         
 
 def test_noaa_nwm_pds_https(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START    
     nwmurl_conf["urlbaseinput"] = 7
     generate_nwmfiles(nwmurl_conf)          
     prep_ngen_data(conf)
@@ -147,8 +145,8 @@ def test_noaa_nwm_pds_https(download_weight_file,clean_forcings_metadata_dirs):
     os.remove(assert_file)     
 
 def test_noaa_nwm_pds_https_short_range(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START    
     nwmurl_conf["urlbaseinput"] = 7
     nwmurl_conf["runinput"] = 1
     generate_nwmfiles(nwmurl_conf)          
@@ -158,8 +156,8 @@ def test_noaa_nwm_pds_https_short_range(download_weight_file,clean_forcings_meta
     os.remove(assert_file) 
 
 def test_noaa_nwm_pds_https_medium_range(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START    
     nwmurl_conf["urlbaseinput"] = 7
     nwmurl_conf["runinput"] = 2
     generate_nwmfiles(nwmurl_conf)          
@@ -169,8 +167,8 @@ def test_noaa_nwm_pds_https_medium_range(download_weight_file,clean_forcings_met
     os.remove(assert_file)         
 
 def test_noaa_nwm_pds_https_analysis_assim(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START    
     nwmurl_conf["urlbaseinput"] = 7
     nwmurl_conf["runinput"] = 5
     generate_nwmfiles(nwmurl_conf)          
@@ -199,8 +197,8 @@ def test_noaa_nwm_pds_https_analysis_assim_extend(download_weight_file,clean_for
     os.remove(assert_file)    
 
 def test_noaa_nwm_pds_s3(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute   
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START   
     nwmurl_conf["runinput"] = 1 
     nwmurl_conf["urlbaseinput"] = 8
     nwmurl_conf["fcst_cycle"] = [0]
@@ -212,15 +210,15 @@ def test_noaa_nwm_pds_s3(download_weight_file,clean_forcings_metadata_dirs):
 
 # def test_ciroh_zarr():
 #     assert False, "Not implemented"
-#     nwmurl_conf['start_date'] = date + hourminute
-#     nwmurl_conf['end_date']   = date + hourminute    
+#     nwmurl_conf['start_date'] = TODAY_START
+#     nwmurl_conf['end_date']   = TODAY_START    
 #     nwmurl_conf["urlbaseinput"] = 9
 #     generate_nwmfiles(nwmurl_conf)          
 #     prep_ngen_data(conf)
 #     assert assert_file.exists()
 #     os.remove(assert_file)        
 
-def test_retro_2_1_https(download_weight_file,clean_forcings_metadata_dirs):
+def test_retro_2_1_https(download_weight_file,clean_forcings_metadata_dirs):    
     conf['forcing']['nwm_file'] = retro_filenamelist
     nwmurl_conf_retro["urlbaseinput"] = 1
     generate_nwmfiles(nwmurl_conf_retro)
@@ -286,8 +284,8 @@ def test_s3_output(download_weight_file,clean_forcings_metadata_dirs,clean_s3_te
     conf['storage']['output_path'] = str(data_dir)
 
 def test_csv_output_type(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute   
+    nwmurl_conf['start_date'] = TODAY_START
+    nwmurl_conf['end_date']   = TODAY_START   
     nwmurl_conf["runinput"] = 1 
     nwmurl_conf["urlbaseinput"] = 8
     nwmurl_conf["fcst_cycle"] = [0]

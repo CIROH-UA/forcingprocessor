@@ -147,7 +147,7 @@ def forcing_grid2catchment(nwm_files: list,
     nwm_files: list of filenames (urls for remote, local paths otherwise),
     fs: an optional file system for cloud storage reads
     ngen_variables: List of variables to read out of the nwm netcdf
-    ngen_plot_vars: List of ngen variables to plot
+    ngen_vars_plot: List of ngen variables to plot
     weights_df: dataframe of weights. weights are values 0-1 corresponding to the percentage an overlapping a grid point on a polygon
     fs_type: type of file system
     ii_verbose: verbosity
@@ -157,7 +157,7 @@ def forcing_grid2catchment(nwm_files: list,
     Outputs: [data_list, t_list, nwm_data]
     data_list : list of ngen forcings ordered in time. ngen_forcings : 2d darray (forcing_variable x catchment)
     t : model_output_valid_time for each
-    nwm_data : nwm data saved for plotting. nwm_data : 3d array (forcing_variable x west_east x south_north
+    nwm_data : nwm data saved for plotting. nwm_data : 3d array (forcing_variable x west_east x south_north)
     """
     topen = 0
     txrds = 0
@@ -319,7 +319,7 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
     filenames = []
     file_sizes_MB = []
     file_sizes_zipped_MB = []
-    tar_list = []
+    tar_buffs = []
     with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
          for results in pool.map(
         write_data_df,
@@ -334,16 +334,14 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
         [ntasked for x in range(nprocs)]
         ):
             ids.append(results[0])
-            dfs.append(results[1])
-            filenames.append(results[2])
-            file_sizes_MB.append(results[3])
-            file_sizes_zipped_MB.append(results[4])
-            tar_list.append(results[5])
+            filenames.append(results[1])
+            file_sizes_MB.append(results[2])
+            file_sizes_zipped_MB.append(results[3])
+            tar_buffs.append(results[4])
 
     print(f'\n\nGathering data from write processes...')
 
     flat_ids = []
-    flat_dfs = []
     flat_filenames = []
     flat_file_sizes = []
     flat_file_sizes_zipped = []
@@ -351,13 +349,12 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
 
     while ids:
         flat_ids.extend(ids.pop(0))
-        flat_dfs.extend(dfs.pop(0))
         flat_filenames.extend(filenames.pop(0))
         flat_file_sizes.extend(file_sizes_MB.pop(0))
         flat_file_sizes_zipped.extend(file_sizes_zipped_MB.pop(0))
-        flat_tar.extend(tar_list.pop(0))
+        flat_tar.extend(tar_buffs.pop(0))
 
-    return flat_ids, flat_dfs, flat_filenames, flat_file_sizes, flat_file_sizes_zipped, flat_tar
+    return flat_ids, flat_filenames, flat_file_sizes, flat_file_sizes_zipped, flat_tar
 
 def write_data_df(
         data,
@@ -383,17 +380,16 @@ def write_data_df(
 
     Returns:
         forcing_cat_ids: List of catchment identifiers
-        dfs: List of pandas DataFrames
         filenames: List of filenames
         file_size_MB: List containing the size of each file in MB
         file_zipped_size_MB: List containing the size of each zipped file in MB
+        tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
     """
     s3_client = boto3.session.Session().client("s3")   
     nfiles = len(catchments)
     id = os.getpid()
     forcing_cat_ids = []
-    tar_list = []
-    dfs = []
+    tar_buffs = []
     filenames = []
     filename  = ""
     write_int = 400
@@ -425,14 +421,13 @@ def write_data_df(
         else: 
             filename = f"./cat-{cat_id}.csv"
 
-        dfs.append(df)     
         filenames.append(str(Path(filename).name))          
 
         if "tar" in output_file_type:
             buf = BytesIO()
             df.to_csv(buf, index=False)
             buf.seek(0)
-            tar_list.append(buf)
+            tar_buffs.append(buf)
 
         if j == 0:
             if not os.path.exists(filename):
@@ -466,14 +461,14 @@ def write_data_df(
                 msg += f"Bandwidth (all processs)   {bandwidth_Mbps:.2f} Mbps"
                 print(msg,flush=True)
 
-    return forcing_cat_ids, dfs, filenames, [file_size_MB], [file_zipped_size_MB], tar_list
+    return forcing_cat_ids, filenames, [file_size_MB], [file_zipped_size_MB], tar_buffs
 
 def write_tar(tar_buffs,jcatchunk,catchments,filenames,storage_type,forcing_path):
     """
     Write DataFrames to a tar archive and upload to S3 or save locally as a compressed tar file.
 
     Args:
-        dfs: List of pandas DataFrames to be archived.
+        tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
         jcatchunk: Identifier for the chunk of catchments.
         catchments: List of catchments.
         filenames: List of filenames corresponding to the DataFrames.
@@ -510,14 +505,14 @@ def write_tar(tar_buffs,jcatchunk,catchments,filenames,storage_type,forcing_path
                 info.size = len(jbuff.getbuffer())
                 jtar.addfile(info, jbuff)     
 
-def multiprocess_write_tar(dfs,catchments,filenames,tar_buffs):  
+def multiprocess_write_tar(catchments,filenames,tar_buffs):  
     """
     Write DataFrames to tar archives using multiprocessing.
 
     Args:
-        dfs: List of pandas DataFrames.
         catchments: Dictionary containing catchment chunks.
         filenames: List of filenames corresponding to the DataFrames.
+        tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
 
     Returns:
         None
@@ -891,7 +886,7 @@ def prep_ngen_data(conf):
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)  
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):
-        forcing_cat_ids, dfs, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(data_array,t_ax,list(weights_df.index),nprocs,forcing_path)
+        forcing_cat_ids, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(data_array,t_ax,list(weights_df.index),nprocs,forcing_path)
 
     write_time += time.perf_counter() - t0    
     write_rate = ncatchments / write_time
@@ -1005,7 +1000,7 @@ def prep_ngen_data(conf):
         log_time("TAR_START", log_file)
         if ii_verbose: print(f'\nWriting tarball...',flush=True)
         t0000 = time.perf_counter()
-        multiprocess_write_tar(dfs,jcatchment_dict,filenames,tar_buffs)    
+        multiprocess_write_tar(jcatchment_dict,filenames,tar_buffs)    
         tar_time = time.perf_counter() - t0000
         log_time("TAR_END", log_file)
 
