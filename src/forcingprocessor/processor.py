@@ -214,7 +214,6 @@ def forcing_grid2catchment(nwm_files: list,
             shp = nwm_data["U2D"].shape   
             data_allvars = np.zeros(shape=(nvar, dy, dx), dtype=np.float64)       
             for var_dx, jvar in enumerate(nwm_variables):  
-                print(var_dx, jvar, flush=True)
                 if "retrospective-2-1" in nwm_file:
                     data_allvars[var_dx, :, :] = np.flip(np.squeeze(nwm_data[jvar].isel(west_east=slice(x_min, x_max+1), south_north=slice(shp[1] - (y_max+1), shp[1] - y_min)).values),axis=0)
                     t = datetime.strftime(datetime.strptime(nwm_file.split('/')[-1].split('.')[0],'%Y%m%d%H'),'%Y-%m-%d %H:%M:%S')
@@ -883,6 +882,9 @@ def prep_ngen_data(conf):
     data_array, t_ax, nwm_data, nwm_file_sizes_MB = multiprocess_data_extract(nwm_forcing_files,nprocs,weights_df,fs,
                                                                               ngen_variables=ngen_variables,
                                                                               nwm_variables=nwm_variables)
+
+    if model_type == "dhbv2":
+        data_array[:,1,:] = data_array[:,1,:] - 273.15  # Convert Kelvin to Celsius
 
     if datetime.strptime(t_ax[0],'%Y-%m-%d %H:%M:%S') > datetime.strptime(t_ax[-1],'%Y-%m-%d %H:%M:%S'):
         # Hack to ensure data is always written out with time moving forward.
