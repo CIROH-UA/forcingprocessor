@@ -9,8 +9,7 @@ import geopandas as gpd
 from pathlib import Path
 from datetime import datetime
 from forcingprocessor.weights_hf2ds import hf2ds
-from forcingprocessor.utils import get_window, nwm_variables, ngen_variables
-from forcingprocessor.utils import nwm_variables
+from forcingprocessor.utils import get_window, nwm_cfe_variables, ngen_cfe_variables, nwm_dhbv2_variables, ngen_dhbv2_variables
 plt.style.use('dark_background')
 mpl.use('Agg')
 
@@ -20,7 +19,9 @@ def plot_ngen_forcings(
         geopackage     : str, 
         t_ax           : list, 
         catchment_ids  : list,
-        ngen_vars_plot : list = ngen_variables,
+        ngen_vars_plot : list = ngen_cfe_variables,
+        ngen_variables  : list = ngen_cfe_variables,
+        nwm_variables   : list = nwm_cfe_variables,
         output_dir     : Path = './GIFs'
         ): 
     """
@@ -78,7 +79,7 @@ def plot_ngen_forcings(
         imageio.mimsave(os.path.join(output_dir, f'{nwm_variable}_2_{ngen_variable}.gif')    , images, loop=0, fps=2)
 
 def nc_to_3darray(forcings_nc    : os.PathLike, 
-                  requested_vars : list = ngen_variables
+                  requested_vars : list = ngen_cfe_variables
                   ) -> np.ndarray:
     '''
     forcings_nc : path to ngen forcings netcdf
@@ -97,7 +98,8 @@ def nc_to_3darray(forcings_nc    : os.PathLike,
     return ngen_data, t_ax_dt, catchment_ids
     
 def csvs_to_3darray(forcings_dir   : os.PathLike,
-                    requested_vars : list = ngen_variables
+                    requested_vars : list = ngen_cfe_variables,
+                    ngen_variables : list = ngen_cfe_variables,
                     ) -> np.ndarray:
     '''
     forcings_dir : directory containing ngen forcings csvs
@@ -129,7 +131,7 @@ def csvs_to_3darray(forcings_dir   : os.PathLike,
 def get_nwm_data_array(
         nwm_folder : list, 
         geopackage : gpd.GeoDataFrame, 
-        nwm_vars   : list = nwm_variables
+        nwm_vars   : list = nwm_cfe_variables
         ) -> np.ndarray:
     """
     Inputs a folder of national water model files and nwm variable names to extract.
@@ -157,11 +159,18 @@ if __name__ == "__main__":
     parser.add_argument("--ngen_forcings", help="Path to a folder containing ngen catchment forcings csvs or path to netcdf",default="")
     parser.add_argument("--nwm_folder",  help="Path to a folder containing nwm CONUS forcings",default="")
     parser.add_argument("--geopackage",  help="Path to a geopackage from which the weights were created",default="")
-    parser.add_argument("--ngen_variables",  help="Space separated list of ngen variables to gif",default=ngen_variables)
+    parser.add_argument("--ngen_variables",  help="Space separated list of ngen variables to gif",default=ngen_cfe_variables)
     parser.add_argument("--output_dir",  help="Path to write gifs to",default="./GIFs")
+    parser.add_argument("--model_type",  help="Type of hydrologic model: cfe or dhbv2",default="cfe")
     args = parser.parse_args()
 
     requested_ngen_variables = args.ngen_variables.split(', ')
+    if args.model_type == 'cfe':
+        nwm_variables = nwm_cfe_variables
+        ngen_variables = ngen_cfe_variables
+    elif args.model_type == 'dhbv2':
+        nwm_variables = nwm_dhbv2_variables
+        ngen_variables = ngen_dhbv2_variables
     nwm_vars = np.array([nwm_variables[x] for x in range(len(ngen_variables)) if ngen_variables[x] in requested_ngen_variables])
     nwm_data = get_nwm_data_array(args.nwm_folder,args.geopackge, nwm_vars)
 

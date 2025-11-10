@@ -15,7 +15,8 @@ import gzip
 import tarfile, tempfile
 from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
-from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
+from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_cfe_variables, ngen_cfe_variables
+from forcingprocessor.utils import nwm_dhbv2_variables, ngen_dhbv2_variables
 
 B2MB = 1048576
 
@@ -68,7 +69,8 @@ def load_balance(items_per_proc,launch_delay,single_ex, exec_count):
     if ii_verbose: print(f'item distribution {items_per_proc}')
     return items_per_proc
 
-def multiprocess_data_extract(files : list, nprocs : int, weights_df : pd.DataFrame, fs):
+def multiprocess_data_extract(files : list, nprocs : int, weights_df : pd.DataFrame, fs,
+                              ngen_variables : list, nwm_variables : list):
     """
     Sets up the multiprocessing pool for forcing_grid2catchment and returns the data and time axis ordered in time.
 
@@ -101,10 +103,12 @@ def multiprocess_data_extract(files : list, nprocs : int, weights_df : pd.DataFr
     t_ax_local = []
     nwm_data = []
     nwm_file_sizes = []
+
     with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
         for results in pool.map(
         forcing_grid2catchment,
         files_list,
+        [nwm_variables for x in range(nprocs)],
         [fs for x in range(nprocs)],
         [ngen_variables for x in range(nprocs)],  
         [ngen_vars_plot for x in range(nprocs)],  
@@ -130,6 +134,7 @@ def multiprocess_data_extract(files : list, nprocs : int, weights_df : pd.DataFr
     return data_array, t_ax_local, nwm_data, nwm_file_sizes_out
 
 def forcing_grid2catchment(nwm_files: list, 
+                           nwm_variables : list,
                            fs=None, 
                            ngen_variables = [], 
                            ngen_vars_plot = [], 
@@ -167,8 +172,8 @@ def forcing_grid2catchment(nwm_files: list,
     nwm_data_plot = []
     jplot_vars = np.array([x for x in range(len(ngen_variables)) if ngen_variables[x] in ngen_vars_plot])
     nfiles = len(nwm_files)
-    nvar = len(nwm_variables)
 
+    nvar = len(nwm_variables)
     x_max = window[0]
     x_min = window[1]
     y_max = window[2]
@@ -209,6 +214,7 @@ def forcing_grid2catchment(nwm_files: list,
             shp = nwm_data["U2D"].shape   
             data_allvars = np.zeros(shape=(nvar, dy, dx), dtype=np.float64)       
             for var_dx, jvar in enumerate(nwm_variables):  
+                print(var_dx, jvar, flush=True)
                 if "retrospective-2-1" in nwm_file:
                     data_allvars[var_dx, :, :] = np.flip(np.squeeze(nwm_data[jvar].isel(west_east=slice(x_min, x_max+1), south_north=slice(shp[1] - (y_max+1), shp[1] - y_min)).values),axis=0)
                     t = datetime.strftime(datetime.strptime(nwm_file.split('/')[-1].split('.')[0],'%Y%m%d%H'),'%Y-%m-%d %H:%M:%S')
@@ -251,7 +257,7 @@ def forcing_grid2catchment(nwm_files: list,
     if ii_verbose: print(f'Process #{id} completed data extraction, returning data to primary process',flush=True)
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
-def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
+def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path,ngen_variables):
     """
     Sets up the process pool for write_data_df.
 
@@ -331,7 +337,8 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
         [ii_verbose for x in range(nprocs)],
         [storage_type for x in range(nprocs)],
         [output_file_type for x in range(nprocs)],
-        [ntasked for x in range(nprocs)]
+        [ntasked for x in range(nprocs)],
+        [ngen_variables for x in range(nprocs)]
         ):
             ids.append(results[0])
             filenames.append(results[1])
@@ -365,7 +372,8 @@ def write_data_df(
         ii_verbose,
         storage_type,
         output_file_type,
-        ntasked
+        ntasked,
+        ngen_variables
 ):
     """
     Write catchment forcing data to csv or parquet if requested. Also responsible for 
@@ -689,6 +697,15 @@ def prep_ngen_data(conf):
 
     gpkg_file = conf['forcing'].get("gpkg_file",None)
     nwm_file = conf['forcing'].get("nwm_file","")
+    model_type = conf['forcing'].get("model_type","cfe")
+    assert model_type in ["cfe","dhbv2"], f"model_type {model_type} not supported"
+
+    if model_type == "cfe":
+        ngen_variables = ngen_cfe_variables
+        nwm_variables = nwm_cfe_variables
+    else:
+        ngen_variables = ngen_dhbv2_variables
+        nwm_variables = nwm_dhbv2_variables
 
     if type(gpkg_file) is not list: gpkg_files = [gpkg_file]
     else: gpkg_files = gpkg_file    
@@ -863,7 +880,9 @@ def prep_ngen_data(conf):
     # data_array=data_array[0][None,:]
     # t_ax = t_ax
     # nwm_data=nwm_data[0][None,:]
-    data_array, t_ax, nwm_data, nwm_file_sizes_MB = multiprocess_data_extract(nwm_forcing_files,nprocs,weights_df,fs)
+    data_array, t_ax, nwm_data, nwm_file_sizes_MB = multiprocess_data_extract(nwm_forcing_files,nprocs,weights_df,fs,
+                                                                              ngen_variables=ngen_variables,
+                                                                              nwm_variables=nwm_variables)
 
     if datetime.strptime(t_ax[0],'%Y-%m-%d %H:%M:%S') > datetime.strptime(t_ax[-1],'%Y-%m-%d %H:%M:%S'):
         # Hack to ensure data is always written out with time moving forward.
@@ -886,7 +905,8 @@ def prep_ngen_data(conf):
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)  
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):
-        forcing_cat_ids, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(data_array,t_ax,list(weights_df.index),nprocs,forcing_path)
+        forcing_cat_ids, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(data_array,t_ax,list(weights_df.index),nprocs,forcing_path,
+                                                                                                                                         ngen_variables=ngen_variables)
 
     write_time += time.perf_counter() - t0    
     write_rate = ncatchments / write_time
@@ -909,7 +929,8 @@ def prep_ngen_data(conf):
                 gif_out = './GIFs'
             else:
                 gif_out = Path(meta_path,'GIFs')
-            plot_ngen_forcings(nwm_data, data_array[:,jplot_vars,:], gpkg_files[0], t_ax, cat_ids, ngen_vars_plot, gif_out)
+            plot_ngen_forcings(nwm_data, data_array[:,jplot_vars,:], gpkg_files[0], t_ax, cat_ids, ngen_vars_plot, 
+                               ngen_variables=ngen_variables, nwm_variables=nwm_variables, gif_out=gif_out)
             if storage_type == "s3":
                 sync_cmd = f'aws s3 sync ./GIFs {meta_path}/GIFs'
                 os.system(sync_cmd)

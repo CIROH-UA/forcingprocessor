@@ -3,7 +3,7 @@ import numpy as np
 from datetime import timezone
 import psutil
 
-nwm_variables = [
+nwm_cfe_variables = [
         "U2D",
         "V2D",
         "LWDOWN",
@@ -15,7 +15,7 @@ nwm_variables = [
         "SWDOWN",
     ]
 
-ngen_variables = [
+ngen_cfe_variables = [
         "UGRD_10maboveground",
         "VGRD_10maboveground",
         "DLWRF_surface",
@@ -25,6 +25,16 @@ ngen_variables = [
         "SPFH_2maboveground",
         "PRES_surface",
         "DSWRF_surface",
+    ] 
+
+nwm_dhbv2_variables = [
+        "RAINRATE",
+        "T2D",
+    ]
+
+ngen_dhbv2_variables = [
+        "P",
+        "Temp",        
     ] 
 
 vpus = ["01","02","03W","03S","03N","04","05","06","07","08","09","10L","10U","11","12","13","14","15","16","17","18"]
@@ -94,7 +104,8 @@ def convert_url2key(nwm_file,fs_type):
 def make_forcing_netcdf(out_path:str,
                         catchments:np.ndarray,
                         t_ax:np.ndarray,
-                        input_array:np.ndarray) -> None:
+                        input_array:np.ndarray,
+                        ngen_variables:list) -> None:
     """
     Create a netcdf file with the forcing data.
     

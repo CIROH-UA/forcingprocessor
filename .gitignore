@@ -1,0 +1,7 @@
+tests/dhbv_tests/
+tests/cfe-nom_tests/
+.DS_Store
+.venv/
+src/forcingprocessor.egg-info/
+src/forcingprocessor/__pycache__/
+profile_fp.txt
