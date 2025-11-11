@@ -17,6 +17,7 @@ from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_cfe_variables, ngen_cfe_variables
 from forcingprocessor.utils import nwm_dhbv2_variables, ngen_dhbv2_variables
+from forcingprocessor.dhbv2_utils import add_pet_to_dataset, multiprocess_get_lats
 
 B2MB = 1048576
 
@@ -885,6 +886,10 @@ def prep_ngen_data(conf):
 
     if model_type == "dhbv2":
         data_array[:,1,:] = data_array[:,1,:] - 273.15  # Convert Kelvin to Celsius
+        catchments = list(weights_df.index)
+        cat_lats = multiprocess_get_lats(gpkg_files, nprocs)
+        data_array = add_pet_to_dataset(data_array, t_ax, catchments, cat_lats)
+        ngen_variables.append('PET')
 
     if datetime.strptime(t_ax[0],'%Y-%m-%d %H:%M:%S') > datetime.strptime(t_ax[-1],'%Y-%m-%d %H:%M:%S'):
         # Hack to ensure data is always written out with time moving forward.
@@ -893,7 +898,7 @@ def prep_ngen_data(conf):
         tmp = LEAD_START
         LEAD_START = LEAD_END
         LEAD_END = tmp
-
+    print(ngen_variables)
     t_extract = time.perf_counter() - t0
     complexity = (nfiles * ncatchments) / 10000
     score = complexity / t_extract
