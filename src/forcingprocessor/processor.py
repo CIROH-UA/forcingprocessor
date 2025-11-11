@@ -554,7 +554,8 @@ def multiprocess_write_tar(catchments,filenames,tar_buffs):
         ):
             pass
 
-def write_netcdf(data:np.ndarray, t_ax:list, catchments:list, prefix:str, filename:str, storage_type:str):
+def write_netcdf(data:np.ndarray, t_ax:list, catchments:list, prefix:str, filename:str,
+                 storage_type:str, ngen_variables:list):
     """
     Write 3D array data to a NetCDF file.
 
@@ -579,19 +580,20 @@ def write_netcdf(data:np.ndarray, t_ax:list, catchments:list, prefix:str, filena
     if storage_type == 's3':
         bucket, key = convert_url2key(nc_filename,'s3')
         with tempfile.NamedTemporaryFile(suffix='.nc') as tmpfile:
-            make_forcing_netcdf(tmpfile.name, catchments, t_utc, data)
+            make_forcing_netcdf(tmpfile.name, catchments, t_utc, data, ngen_variables)
             netcdf_cat_file_size = os.path.getsize(tmpfile.name) / B2MB
             tmpfile.flush()
             tmpfile.seek(0)
             print(f"Uploading netcdf forcings to S3: bucket={bucket}, key={key}")
             s3_client.upload_file(tmpfile.name, bucket, key)
     else:
-        make_forcing_netcdf(nc_filename, catchments, t_utc, data)
+        make_forcing_netcdf(nc_filename, catchments, t_utc, data, ngen_variables)
         print(f'netcdf has been written to {nc_filename}')
         netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
     return netcdf_cat_file_size
 
-def multiprocess_write_netcdf(data:np.ndarray, jcatchment_dict:dict, t_ax:np.ndarray):
+def multiprocess_write_netcdf(data:np.ndarray, jcatchment_dict:dict, t_ax:np.ndarray,
+                              ngen_variables:list):
     """
     Write DataFrames to tar archives using multiprocessing.
 
@@ -632,7 +634,8 @@ def multiprocess_write_netcdf(data:np.ndarray, jcatchment_dict:dict, t_ax:np.nda
             catchments_list,
             [forcing_path for x in range(njobs)],
             filenames,
-            [storage_type for x in range(njobs)]
+            [storage_type for x in range(njobs)],
+            [ngen_variables for x in range(njobs)]
             ):
             netcdf_cat_file_sizes.append(results)
 
@@ -909,7 +912,8 @@ def prep_ngen_data(conf):
     log_time("FILEWRITING_START", log_file)
     t0 = time.perf_counter()
     if "netcdf" in output_file_type:
-        netcdf_cat_file_sizes_MB = multiprocess_write_netcdf(data_array, jcatchment_dict, t_ax)
+        netcdf_cat_file_sizes_MB = multiprocess_write_netcdf(data_array, jcatchment_dict, t_ax,
+                                                             ngen_variables)
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):
