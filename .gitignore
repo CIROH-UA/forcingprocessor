@@ -1,5 +1,5 @@
-tests/dhbv_tests/
-tests/cfe-nom_tests/
+tests/dhbv2_example/forcings/
+tests/cfe-nom_example/forcings/
 .DS_Store
 .venv/
 src/forcingprocessor.egg-info/
