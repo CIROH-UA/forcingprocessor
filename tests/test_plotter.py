@@ -104,8 +104,6 @@ def test_forcings_plot(download_gpkg):
         t_ax,
         catchment_ids,
         ["TMP_2maboveground"],
-        ngen_variables,
-        nwm_variables,
         os.path.join(DATA_DIR,'metadata/GIFs')
         )
 
