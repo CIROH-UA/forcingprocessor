@@ -15,5 +15,9 @@
         "verbose"       : true,
         "collect_stats" : true,
         "nprocs"        : 8
+    },
+
+    "plot" : {
+        "nts" : 3
     }
 }

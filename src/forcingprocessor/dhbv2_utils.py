@@ -7,11 +7,22 @@ import concurrent.futures as cf
 def add_pet_to_dataset(dataset: np.ndarray, t_ax: list, catchments: list,
                        cat_lats: dict) -> np.ndarray:
     '''
-    Used for dHBV2. 
-    Input dataset should be in the shape [time, vars, catchment]
-    where vars are precip and temperature.
+    Add calculated PET to dataset.
 
-    The output is a dataset in the same shape but with PET added as the third variable
+    Parameters: 
+        dataset : np.ndarray
+            shape (num_timesteps, num_vars, num_catchments) where vars are 
+            precip and temperature
+        t_ax : list
+            length num_timesteps
+        catchments : list 
+            length num_catchments
+        cat_lats : dict 
+            {catchment_id: latitude}
+
+    Returns:
+        np.ndarray : shape (num_timesteps, num_vars, num_catchments) where vars 
+            are precip, temperature, and PET
     '''
 
     SOLAR_CONSTANT = 0.0820
@@ -19,12 +30,21 @@ def add_pet_to_dataset(dataset: np.ndarray, t_ax: list, catchments: list,
     def hargreaves(tmin: np.ndarray, tmax: np.ndarray, tmean: np.ndarray, 
                    lat: list, date: pd.Timestamp) -> np.ndarray:
         """
-        tmax: (num_catchments, )
-        tmin: (num_catchments, )
-        tmean: (num_catchments, )
-        lat: list of length num_catchments
-        date: pandas Timestamp
-        returns pet: (num_catchments, )
+        Compute PET using Hargreaves equation.
+
+        Parameters:
+        tmax : np.ndarray
+            shape (num_catchments, )
+        tmin : np.ndarray
+            shape (num_catchments, )
+        tmean : np.ndarray 
+            shape (num_catchments, )
+        lat : list 
+            length num_catchments
+        date : pd.Timestamp
+
+        Output:
+        np.ndarray : shape (num_catchments, ), contains PET values
         """
         #calculate the day of year
         dfdate = date
@@ -86,8 +106,16 @@ def add_pet_to_dataset(dataset: np.ndarray, t_ax: list, catchments: list,
     return dataset
 
 def get_lats(gdf_path: str) -> dict:
+    
     '''
-    return latitudes for each catchment
+    Identify latitudes of catchments from geopackage file.
+
+    Parameters:
+        gdf_path : str
+            Path to geopackage file with catchment divides layer.
+    
+    Returns:
+        dict : {catchment_id: latitude}
     '''
     gdf = gpd.read_file(gdf_path, layer="divides")
     cats = gdf['divide_id']
@@ -102,6 +130,18 @@ def get_lats(gdf_path: str) -> dict:
     return cat_lat
 
 def multiprocess_get_lats(files: list, max_procs: int) -> dict:   
+    '''
+    Multiprocess get latitudes from multiple geopackage files.
+
+    Parameters:
+        files : list
+            List of paths to geopackage files.
+        max_procs : int
+            Maximum number of processes to use.
+    
+    Returns:
+        dict : {catchment_id: latitude}
+    '''
     lat_dicts = []
     with cf.ProcessPoolExecutor(max_workers=max_procs) as pool:
         for results in pool.map(

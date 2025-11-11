@@ -104,7 +104,6 @@ def multiprocess_data_extract(files : list, nprocs : int, weights_df : pd.DataFr
     t_ax_local = []
     nwm_data = []
     nwm_file_sizes = []
-
     with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
         for results in pool.map(
         forcing_grid2catchment,
@@ -883,14 +882,14 @@ def prep_ngen_data(conf):
     data_array, t_ax, nwm_data, nwm_file_sizes_MB = multiprocess_data_extract(nwm_forcing_files,nprocs,weights_df,fs,
                                                                               ngen_variables=ngen_variables,
                                                                               nwm_variables=nwm_variables)
+    ngen_variables_to_print = ngen_variables.copy()
 
     if model_type == "dhbv2":
         data_array[:,1,:] = data_array[:,1,:] - 273.15  # Convert Kelvin to Celsius
         catchments = list(weights_df.index)
         cat_lats = multiprocess_get_lats(gpkg_files, nprocs)
         data_array = add_pet_to_dataset(data_array, t_ax, catchments, cat_lats)
-        ngen_variables.append('PET')
-
+        ngen_variables_to_print.append('PET')
     if datetime.strptime(t_ax[0],'%Y-%m-%d %H:%M:%S') > datetime.strptime(t_ax[-1],'%Y-%m-%d %H:%M:%S'):
         # Hack to ensure data is always written out with time moving forward.
         t_ax=list(reversed(t_ax))
@@ -898,7 +897,7 @@ def prep_ngen_data(conf):
         tmp = LEAD_START
         LEAD_START = LEAD_END
         LEAD_END = tmp
-    print(ngen_variables)
+
     t_extract = time.perf_counter() - t0
     complexity = (nfiles * ncatchments) / 10000
     score = complexity / t_extract
@@ -913,7 +912,7 @@ def prep_ngen_data(conf):
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)  
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):
         forcing_cat_ids, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(data_array,t_ax,list(weights_df.index),nprocs,forcing_path,
-                                                                                                                                         ngen_variables=ngen_variables)
+                                                                                                                                         ngen_variables=ngen_variables_to_print)
 
     write_time += time.perf_counter() - t0    
     write_rate = ncatchments / write_time
@@ -921,7 +920,6 @@ def prep_ngen_data(conf):
     log_time("FILEWRITING_END", log_file)
 
     runtime = time.perf_counter() - t_start
-
     if ii_plot:
         if gpkg_files[0].endswith('.parquet'): 
             print(f'Plotting currently not implemented for parquet, need geopackage')
@@ -937,7 +935,7 @@ def prep_ngen_data(conf):
             else:
                 gif_out = Path(meta_path,'GIFs')
             plot_ngen_forcings(nwm_data, data_array[:,jplot_vars,:], gpkg_files[0], t_ax, cat_ids, ngen_vars_plot, 
-                               ngen_variables=ngen_variables, nwm_variables=nwm_variables, gif_out=gif_out)
+                               ngen_variables=ngen_variables, nwm_variables=nwm_variables, output_dir=gif_out)
             if storage_type == "s3":
                 sync_cmd = f'aws s3 sync ./GIFs {meta_path}/GIFs'
                 os.system(sync_cmd)
@@ -996,10 +994,14 @@ def prep_ngen_data(conf):
         }
 
         data_avg = np.average(data_array,axis=0)
+        if model_type == "dhbv2":
+            data_avg = np.delete(data_avg, 2, axis=0)  # Remove the PET variable for average/median stats
         avg_df = pd.DataFrame(data_avg.T,columns=ngen_variables)
         avg_df.insert(0,"catchment id",forcing_cat_ids)
 
         data_med = np.median(data_array,axis=0)
+        if model_type == "dhbv2":
+            data_med = np.delete(data_med, 2, axis=0)  # Remove the PET variable for average/median stats
         med_df = pd.DataFrame(data_med.T,columns=ngen_variables)
         med_df.insert(0,"catchment id",forcing_cat_ids)     
 
