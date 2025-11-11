@@ -9,26 +9,27 @@ import geopandas as gpd
 from pathlib import Path
 from datetime import datetime
 from forcingprocessor.weights_hf2ds import hf2ds
-from forcingprocessor.utils import get_window, nwm_cfe_variables, ngen_cfe_variables, nwm_dhbv2_variables, ngen_dhbv2_variables
+from forcingprocessor.utils import get_window, nwm_cfe_variables, ngen_cfe_variables
+from forcingprocessor.utils import nwm_dhbv2_variables, ngen_dhbv2_variables
 plt.style.use('dark_background')
 mpl.use('Agg')
 
 def plot_ngen_forcings(
-        nwm_data       : np.ndarray, 
+        nwm_data       : np.ndarray,
         ngen_data      : np.ndarray,
-        geopackage     : str, 
-        t_ax           : list, 
+        geopackage     : str,
+        t_ax           : list,
         catchment_ids  : list,
-        ngen_vars_plot : list = ngen_cfe_variables,
-        ngen_variables  : list = ngen_cfe_variables,
-        nwm_variables   : list = nwm_cfe_variables,
+        ngen_vars_plot : list,
+        ngen_variables  : list,
+        nwm_variables   : list,
         output_dir     : Path = './GIFs'
-        ): 
+        ):
     """
     Generates side-by-side gif of nwm and ngen forcing data
 
     nwm_data  : 4d array (time x nwm_forcing_variable x west_east x south_north)
-    ngen_data : 3d array (time x ngen_forcing_variable x catchment) 
+    ngen_data : 3d array (time x ngen_forcing_variable x catchment)
     t_ax      : list of datetimes for the time axis
     catchment_ids : list of catchment ids
     ngen_vars_plot : list of ngen variables to plot
@@ -55,15 +56,15 @@ def plot_ngen_forcings(
             gdf.plot(
                 column=ngen_variable,
                 ax=axes[1],
-                vmin=cmin, 
+                vmin=cmin,
                 vmax=cmax
                 )
             axes[1].set_title(f'NGEN')
             axes[1].axis('off')
             fig_name = f'{jtime}.png'
-            plt.colorbar(im, 
+            plt.colorbar(im,
                         ax=axes,
-                        orientation='horizontal', 
+                        orientation='horizontal',
                         fraction=.1,
                         label=f'{nwm_variable} -> {ngen_variable}'
                         )
@@ -78,8 +79,8 @@ def plot_ngen_forcings(
             os.remove(jpng)
         imageio.mimsave(os.path.join(output_dir, f'{nwm_variable}_2_{ngen_variable}.gif')    , images, loop=0, fps=2)
 
-def nc_to_3darray(forcings_nc    : os.PathLike, 
-                  requested_vars : list = ngen_cfe_variables
+def nc_to_3darray(forcings_nc    : os.PathLike,
+                  requested_vars : list
                   ) -> np.ndarray:
     '''
     forcings_nc : path to ngen forcings netcdf
@@ -96,10 +97,10 @@ def nc_to_3darray(forcings_nc    : os.PathLike,
         t_ax_dt.append(datetime.fromtimestamp(jt).strftime('%Y%m%d%H%M')  )
 
     return ngen_data, t_ax_dt, catchment_ids
-    
+
 def csvs_to_3darray(forcings_dir   : os.PathLike,
-                    requested_vars : list = ngen_cfe_variables,
-                    ngen_variables : list = ngen_cfe_variables,
+                    requested_vars : list,
+                    ngen_variables : list
                     ) -> np.ndarray:
     '''
     forcings_dir : directory containing ngen forcings csvs
@@ -108,11 +109,11 @@ def csvs_to_3darray(forcings_dir   : os.PathLike,
     i = 0
     for (_, _, files) in os.walk(forcings_dir):
         for j, jfile in enumerate(files):
-            if jfile[-3:] == "csv": 
-                catchment_id = jfile.split('.')[0] 
+            if jfile[-3:] == "csv":
+                catchment_id = jfile.split('.')[0]
                 catchment_ids.append(catchment_id)
-                ngen_jdf = pd.read_csv(os.path.join(forcings_dir, jfile))            
-                if i == 0: 
+                ngen_jdf = pd.read_csv(os.path.join(forcings_dir, jfile))
+                if i == 0:
                     i += 1
                     t_ax = ngen_jdf['time']
                     ngen_jdf = ngen_jdf.drop(columns='time')
@@ -120,8 +121,8 @@ def csvs_to_3darray(forcings_dir   : os.PathLike,
                     ngen_data = np.zeros((len(files),shp[0],shp[1]),dtype=np.float32)
                 else:
                     ngen_jdf = ngen_jdf.drop(columns='time')
-                
-                ngen_data[j,:,:] = np.array(ngen_jdf)    
+
+                ngen_data[j,:,:] = np.array(ngen_jdf)
 
     ngen_vars = np.array([x for x in range(len(ngen_variables)) if ngen_variables[x] in requested_vars])
     ngen_data = np.moveaxis(ngen_data[:,:,ngen_vars],[0,1,2],[2,0,1])
@@ -129,9 +130,9 @@ def csvs_to_3darray(forcings_dir   : os.PathLike,
     return ngen_data, t_ax, catchment_ids
 
 def get_nwm_data_array(
-        nwm_folder : list, 
-        geopackage : gpd.GeoDataFrame, 
-        nwm_vars   : list = nwm_cfe_variables
+        nwm_folder : list,
+        geopackage : gpd.GeoDataFrame,
+        nwm_vars   : np.ndarray
         ) -> np.ndarray:
     """
     Inputs a folder of national water model files and nwm variable names to extract.
@@ -140,7 +141,7 @@ def get_nwm_data_array(
     nwm_data  : 4d array (time x nwm_forcing_variable x west_east x south_north)
     """
     weights_json, _ = hf2ds([geopackage],nwm_folder[0],1)
-    x_min, x_max, y_min, y_max = get_window(weights_json)     
+    x_min, x_max, y_min, y_max = get_window(weights_json)
 
     for path, _, files in os.walk(nwm_folder):
         nwm_data = np.zeros((len(files),len(nwm_vars),y_max-y_min+1,x_max - x_min+1),dtype=np.float32)
@@ -150,7 +151,7 @@ def get_nwm_data_array(
             nwm_var = np.zeros((len(nwm_vars),y_max-y_min+1,x_max - x_min+1),dtype=np.float32)
             for j, jvar in enumerate(nwm_vars):
                 nwm_var[j,:,:] = np.flip(np.squeeze(ds[jvar].isel(x=slice(x_min, x_max + 1), y=slice(3840 - y_max, 3840 - y_min + 1))),0)
-            nwm_data[k,:,:,:] = nwm_var    
+            nwm_data[k,:,:,:] = nwm_var
 
     return nwm_data
 
@@ -159,9 +160,11 @@ if __name__ == "__main__":
     parser.add_argument("--ngen_forcings", help="Path to a folder containing ngen catchment forcings csvs or path to netcdf",default="")
     parser.add_argument("--nwm_folder",  help="Path to a folder containing nwm CONUS forcings",default="")
     parser.add_argument("--geopackage",  help="Path to a geopackage from which the weights were created",default="")
-    parser.add_argument("--ngen_variables",  help="Space separated list of ngen variables to gif",default=ngen_cfe_variables)
+    parser.add_argument("--ngen_variables",  help="Space separated list of ngen variables to gif",
+                        default=ngen_cfe_variables)
     parser.add_argument("--output_dir",  help="Path to write gifs to",default="./GIFs")
-    parser.add_argument("--model_type",  help="Type of hydrologic model: cfe or dhbv2",default="cfe")
+    parser.add_argument("--model_type",  help="Type of hydrologic model: cfe or dhbv2",
+                        default="cfe")
     args = parser.parse_args()
 
     requested_ngen_variables = args.ngen_variables.split(', ')
@@ -172,20 +175,22 @@ if __name__ == "__main__":
         nwm_variables = nwm_dhbv2_variables
         ngen_variables = ngen_dhbv2_variables
     nwm_vars = np.array([nwm_variables[x] for x in range(len(ngen_variables)) if ngen_variables[x] in requested_ngen_variables])
-    nwm_data = get_nwm_data_array(args.nwm_folder,args.geopackge, nwm_vars)
+    nwm_data = get_nwm_data_array(args.nwm_folder, args.geopackge, nwm_vars)
 
     if args.ngen_forcings.endswith('.nc'):
         ngen_data, t_ax, catchment_ids = nc_to_3darray(args.ngen_forcings, requested_ngen_variables)
     else:
-        ngen_data, t_ax, catchment_ids = csvs_to_3darray(args.ngen_forcings, requested_ngen_variables)  
+        ngen_data, t_ax, catchment_ids = csvs_to_3darray(args.ngen_forcings, requested_ngen_variables, ngen_variables)
 
     plot_ngen_forcings(
-        nwm_data, 
-        ngen_data, 
-        args.geopackage, 
-        t_ax, 
+        nwm_data,
+        ngen_data,
+        args.geopackage,
+        t_ax,
         catchment_ids,
         requested_ngen_variables,
+        ngen_variables,
+        nwm_variables,
         args.output_dir
         )
     print(f'Gifs creation complete')

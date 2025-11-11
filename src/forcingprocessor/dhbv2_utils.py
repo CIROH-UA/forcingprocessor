@@ -1,33 +1,37 @@
+"""Functions for dHBV2 model forcings processing."""
+
+import warnings
+import concurrent.futures as cf
+
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-import warnings
-import concurrent.futures as cf
+
+SOLAR_CONSTANT = 0.0820
+TMP1 = (24.0 * 60.0) / np.pi
 
 def add_pet_to_dataset(dataset: np.ndarray, t_ax: list, catchments: list,
                        cat_lats: dict) -> np.ndarray:
     '''
     Add calculated PET to dataset.
 
-    Parameters: 
+    Parameters:
         dataset : np.ndarray
-            shape (num_timesteps, num_vars, num_catchments) where vars are 
+            shape (num_timesteps, num_vars, num_catchments) where vars are
             precip and temperature
         t_ax : list
             length num_timesteps
-        catchments : list 
+        catchments : list
             length num_catchments
-        cat_lats : dict 
+        cat_lats : dict
             {catchment_id: latitude}
 
     Returns:
-        np.ndarray : shape (num_timesteps, num_vars, num_catchments) where vars 
+        np.ndarray : shape (num_timesteps, num_vars, num_catchments) where vars
             are precip, temperature, and PET
     '''
 
-    SOLAR_CONSTANT = 0.0820
-    tmp1 = (24.0 * 60.0) / np.pi
-    def hargreaves(tmin: np.ndarray, tmax: np.ndarray, tmean: np.ndarray, 
+    def hargreaves(tmin: np.ndarray, tmax: np.ndarray, tmean: np.ndarray,
                    lat: list, date: pd.Timestamp) -> np.ndarray:
         """
         Compute PET using Hargreaves equation.
@@ -37,9 +41,9 @@ def add_pet_to_dataset(dataset: np.ndarray, t_ax: list, catchments: list,
             shape (num_catchments, )
         tmin : np.ndarray
             shape (num_catchments, )
-        tmean : np.ndarray 
+        tmean : np.ndarray
             shape (num_catchments, )
-        lat : list 
+        lat : list
             length num_catchments
         date : pd.Timestamp
 
@@ -64,14 +68,14 @@ def add_pet_to_dataset(dataset: np.ndarray, t_ax: list, catchments: list,
         ird = 1 + (0.033 * np.cos((2.0 * np.pi / 365.0) * day_of_year))
         tmp2 = sha * np.sin(latitude) * np.sin(sol_dec)
         tmp3 = np.cos(latitude) * np.cos(sol_dec) * np.sin(sha)
-        et_rad = tmp1 * SOLAR_CONSTANT * ird * (tmp2 + tmp3)
+        et_rad = TMP1 * SOLAR_CONSTANT * ird * (tmp2 + tmp3)
         et_rad = et_rad.reshape(-1)
         pet = 0.0023 * (tmean + 17.8) * temp_range ** 0.5 * 0.408 * et_rad
         pet[pet < 0] = 0
         return pet
-    
+
     # read 24 hour chunks at a time to calculate temperature stats
-    # if a 24 hr chunk not available, then stats computed for whatever length of timestep is there    
+    # if a 24 hr chunk not available, then stats computed for whatever length of timestep is there
     num_ts, _, num_cats = dataset.shape
 
     day_chunk_start_idx = 0
@@ -106,14 +110,14 @@ def add_pet_to_dataset(dataset: np.ndarray, t_ax: list, catchments: list,
     return dataset
 
 def get_lats(gdf_path: str) -> dict:
-    
+
     '''
     Identify latitudes of catchments from geopackage file.
 
     Parameters:
         gdf_path : str
             Path to geopackage file with catchment divides layer.
-    
+
     Returns:
         dict : {catchment_id: latitude}
     '''
@@ -122,14 +126,15 @@ def get_lats(gdf_path: str) -> dict:
 
     # convert to a geographic crs so we get actual degrees for lat/lon
     gdf_geog = gdf.to_crs(4326)
-    with warnings.catch_warnings(): # it will complain about it being a geographic CRS, this is to shut it up
+    with warnings.catch_warnings(): # it will complain about it being a
+        # geographic CRS, this is to shut it up
         warnings.simplefilter("ignore")
         lats = gdf_geog.centroid.y
 
     cat_lat = dict(zip(cats, lats))
     return cat_lat
 
-def multiprocess_get_lats(files: list, max_procs: int) -> dict:   
+def multiprocess_get_lats(files: list, max_procs: int) -> dict:
     '''
     Multiprocess get latitudes from multiple geopackage files.
 
@@ -138,7 +143,7 @@ def multiprocess_get_lats(files: list, max_procs: int) -> dict:
             List of paths to geopackage files.
         max_procs : int
             Maximum number of processes to use.
-    
+
     Returns:
         dict : {catchment_id: latitude}
     '''
@@ -148,10 +153,10 @@ def multiprocess_get_lats(files: list, max_procs: int) -> dict:
         get_lats,
         files
         ):
-            lat_dicts.append(results)  
+            lat_dicts.append(results)
 
     cat_latitudes = {}
     for jdict in lat_dicts:
         cat_latitudes.update(jdict)
-        
+
     return cat_latitudes
