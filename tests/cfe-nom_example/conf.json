@@ -1,8 +1,7 @@
 {
     "forcing"  : {
         "nwm_file"   : "filenamelist.txt",
-        "gpkg_file"  : ["cat-88306_subset.gpkg"],
-        "model_type" : "cfe"
+        "gpkg_file"  : ["cat-88306_subset.gpkg"]
     },
 
     "storage":{

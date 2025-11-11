@@ -54,6 +54,7 @@ Prior to executing the processor, the user will need to obtain a geopackage file
 |-------------------|--------------------------|----------|
 | nwm_file          | Path to a text file containing nwm file names. One filename per line. [Tool](#nwm_file) to create this file | :white_check_mark: |
 | gpkg_file       | Geopackage file to define spatial domain. Use [hfsubset](https://github.com/lynker-spatial/hfsubsetCLI) to generate a geopackage with a `forcing-weights` layer. Accepts local absolute path, s3 URI or URL. Also acceptable is a weights parquet generated with [weights_hf2ds.py](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/weights_hf2ds.py), though the plotting option will no longer be available. |  :white_check_mark: |
+| model_type       | Model for which forcings will be generated. Accepts 'cfe' or 'dhbv2'. Defaults to 'cfe'. |  |
 
 ### 2. Storage
 
@@ -77,7 +78,7 @@ Use this field to create a side-by-side gif of the nwm and ngen forcings
 | nts           | Number of timesteps to include in the gif, default is 10           |   |
 | ngen_vars     | Which ngen forcings variables to create gifs of, default is all of them  |   |`
 ```
-ngen_variables = [
+ngen_cfe_variables = [
     "UGRD_10maboveground",
     "VGRD_10maboveground",
     "DLWRF_surface",
@@ -88,6 +89,11 @@ ngen_variables = [
     "PRES_surface",
     "DSWRF_surface",
 ] 
+
+ngen_dhbv2_variables = [
+    "P",
+    "Temp",   
+]
 ```  
 
 ## nwm_file

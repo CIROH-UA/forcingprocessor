@@ -994,7 +994,7 @@ def prep_ngen_data(conf):
         }
 
         data_avg = np.average(data_array,axis=0)
-        if model_type == "dhbv2":
+        if model_type == "dhbv2": # TODO: add PET variable to graphs, edit range for temperature
             data_avg = np.delete(data_avg, 2, axis=0)  # Remove the PET variable for average/median stats
         avg_df = pd.DataFrame(data_avg.T,columns=ngen_variables)
         avg_df.insert(0,"catchment id",forcing_cat_ids)
