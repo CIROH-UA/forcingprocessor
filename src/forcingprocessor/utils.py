@@ -2,6 +2,7 @@ from datetime import datetime
 import numpy as np
 from datetime import timezone
 import psutil
+import boto3
 
 nwm_variables = [
         "U2D",
@@ -64,8 +65,11 @@ def get_window(weights_df):
 
 def log_time(label, log_file):
     timestamp = datetime.now(timezone.utc).astimezone().strftime('%Y%m%d%H%M%S')
-    with open(log_file, 'a') as f:
-        f.write(f"{label}: {timestamp}\n")
+    if "s3://" in log_file:
+        pass
+    else:
+        with open(log_file, 'a') as f:
+            f.write(f"{label}: {timestamp}\n")
 
 def report_usage():
     usage_ram   = psutil.virtual_memory()[3]/1000000000

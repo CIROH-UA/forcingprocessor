@@ -1,13 +1,14 @@
 import json, re, argparse, time, requests, os
 from io import BytesIO
 import geopandas as gpd
-import concurrent.futures as cf
+# import concurrent.futures as cf
 import pandas as pd
 import xarray as xr
 import numpy as np
 gpd.options.io_engine = "pyogrio" 
+from multiprocessing import Process, Pipe
 
-def rastersourceNexactextract(raster_data,geo_data):
+def rastersourceNexactextract(connection,raster_data,geo_data):
     from exactextract import exact_extract
     from exactextract.raster import NumPyRasterSource
     ncatch_proc = len(geo_data)
@@ -39,7 +40,10 @@ def rastersourceNexactextract(raster_data,geo_data):
     assert ncatch_proc == len(output)
     print(f"single thread -> {ncatch_proc} weights calculated in {tf:.1f}s for a rate of {ncatch_proc/tf:.1f}catch/s",flush=True)
 
-    return output
+    connection.send(output)
+    connection.close()
+
+    # return output
 
 def get_projection(raster_file):
     if 'https://' in raster_file:
@@ -86,16 +90,35 @@ def calc_weights_from_gdf(gdf:gpd.GeoDataFrame, raster_file : str, nf :str) -> d
         i=k
         k = nper + i
         
-    print(f"Performing multiprocess exactextract",flush=True)
+    # print(f"Performing multiprocess exactextract",flush=True)
     output_list = []
-    raster_list = [raster_data for x in range (nprocs)]
-    with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
-        for results in pool.map(
-            rastersourceNexactextract,
-            raster_list,
-            geo_df_list
-            ):
-            output_list.append(results)
+    # raster_list = [raster_data for x in range (nprocs)]
+    # with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
+    #     for results in pool.map(
+    #         rastersourceNexactextract,
+    #         raster_list,
+    #         geo_df_list
+    #         ):
+    #         output_list.append(results)
+    
+    parent_pipes=[]
+    processes = []
+    for j,jproc in enumerate(range(nprocs)):
+        parent_conn, child_conn = Pipe()
+        parent_pipes.append(parent_conn)
+        process = Process(target=rastersourceNexactextract, args=(child_conn, raster_data, geo_df_list[j]))
+        processes.append(process)
+
+    for process in processes:
+        process.start()
+
+    for jpipe in parent_pipes:
+        jresults = jpipe.recv()
+        output_list.append(jresults[0])
+        
+    for process in processes:
+        process.join()    
+
     print(f"Concatenating results",flush=True)
     output = pd.concat(output_list, ignore_index=True)
     weights = output.set_index("divide_id")
@@ -118,15 +141,34 @@ def multiprocess_hf2ds(files : list,raster_template : str, max_procs : int):
         
     weight_dfs = []
     jcatchment_dicts = []
-    with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
-        for results in pool.map(
-        hf2ds,
-        files_list,
-        [raster_template for x in range(len(files_list))],
-        [nf for x in range(len(files_list))]
-        ):
-            weight_dfs.append(results[0])
-            jcatchment_dicts.append(results[1])  
+    # with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
+    #     for results in pool.map(
+    #     hf2ds,
+    #     files_list,
+    #     [raster_template for x in range(len(files_list))],
+    #     [nf for x in range(len(files_list))]
+    #     ):
+    #         weight_dfs.append(results[0])
+    #         jcatchment_dicts.append(results[1])  
+
+    parent_pipes=[]
+    processes = []
+    for j,jproc in enumerate(range(nprocs)):
+        parent_conn, child_conn = Pipe()
+        parent_pipes.append(parent_conn)
+        process = Process(target=hf2ds, args=(child_conn, files_list[j], raster_template,nf))
+        processes.append(process)
+
+    for process in processes:
+        process.start()
+
+    for jpipe in parent_pipes:
+        jresults = jpipe.recv()
+        weight_dfs.append(jresults[0])
+        jcatchment_dicts.append(jresults[1])
+        
+    for process in processes:
+        process.join()                
 
     weights_df = pd.concat(weight_dfs)
 
@@ -137,7 +179,7 @@ def multiprocess_hf2ds(files : list,raster_template : str, max_procs : int):
     return weights_df, jcatchment_dict  
 
 
-def hf2ds(files : list, raster : str, nf):
+def hf2ds(connection,files : list, raster : str, nf):
     """
     Extracts the weights from a list of files
 
@@ -164,6 +206,9 @@ def hf2ds(files : list, raster : str, nf):
         jcatchment_dict[jname] = list(jweights_df.index)
 
     weights_df = pd.concat(weights_dfs)
+
+    connection.send([weights_df, jcatchment_dict])
+    connection.close()
 
     return weights_df, jcatchment_dict
 
@@ -216,6 +261,7 @@ def hydrofabric2datastream_weights(weights_file : str, raster_template: str, nf 
     tf = time.perf_counter()
     dt = tf - t0
     print(f'{weights_file} {ncatchment} catchment weights obtained {dt:.2f} seconds total, {ncatchment/dt:.2f} catchments/second',flush=True)
+    
     return weights_df
 
 if __name__ == "__main__":

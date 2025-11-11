@@ -1,0 +1,14 @@
+FROM ghcr.io/osgeo/gdal:ubuntu-small-latest-arm64
+RUN apt-get update && \
+	apt-get install -y python3 python3-dev python3-pip python3-venv build-essential libpq-dev gdal-bin libgdal-dev aptitude && \ 
+	aptitude install -y libgdal-dev && \
+	rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY setup.cfg /app
+COPY src/ /app/src
+COPY data/weights/ /app/data/weights
+ENV VIRTUAL_ENV=/opt/venv
+RUN python3 -m venv $VIRTUAL_ENV
+ENV PATH="$VIRTUAL_ENV/bin:$PATH"
+RUN pip install -e . && pip install awslambdaric
+CMD ["python3", "-m", "awslambdaric", "main.lambda_handler"]

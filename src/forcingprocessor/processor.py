@@ -16,6 +16,7 @@ import tarfile, tempfile
 from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
+from multiprocessing import Process, Pipe
 
 B2MB = 1048576
 
@@ -101,26 +102,56 @@ def multiprocess_data_extract(files : list, nprocs : int, weights_df : pd.DataFr
     t_ax_local = []
     nwm_data = []
     nwm_file_sizes = []
-    with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
-        for results in pool.map(
-        forcing_grid2catchment,
-        files_list,
-        [fs for x in range(nprocs)],
-        [ngen_variables for x in range(nprocs)],  
-        [ngen_vars_plot for x in range(nprocs)],  
-        [weights_df for x in range(nprocs)],
-        [window for x in range(nprocs)],
-        [fs_type for x in range(nprocs)],
-        [ii_verbose for x in range(nprocs)],
-        [ii_plot for x in range(nprocs)],
-        [nts_plot for x in range(nprocs)]
-        ):
-            data_ax.append(results[0])
-            t_ax_local.append(results[1])    
-            nwm_data.append(results[2])        
-            nwm_file_sizes.append(results[3])        
+    # with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
+    #     for results in pool.map(
+    #     forcing_grid2catchment,
+    #     files_list,
+    #     [fs for x in range(nprocs)],
+    #     [ngen_variables for x in range(nprocs)],  
+    #     [ngen_vars_plot for x in range(nprocs)],  
+    #     [weights_df for x in range(nprocs)],
+    #     [window for x in range(nprocs)],
+    #     [fs_type for x in range(nprocs)],
+    #     [ii_verbose for x in range(nprocs)],
+    #     [ii_plot for x in range(nprocs)],
+    #     [nts_plot for x in range(nprocs)]
+    #     ):
+    #         data_ax.append(results[0])
+    #         t_ax_local.append(results[1])    
+    #         nwm_data.append(results[2])        
+    #         nwm_file_sizes.append(results[3])        
+
+    parent_pipes=[]
+    processes = []
+    for j,jproc in enumerate(range(nprocs)):
+        parent_conn, child_conn = Pipe()
+        parent_pipes.append(parent_conn)
+        process = Process(target=forcing_grid2catchment, args=(child_conn, files_list[j],fs,
+        ngen_variables,  
+        ngen_vars_plot,  
+        weights_df ,
+        window,
+        fs_type ,
+        ii_verbose,
+        ii_plot,
+        nts_plot))
+        processes.append(process)
+
+    for process in processes:
+        process.start()
+
+    for jpipe in parent_pipes:
+        jresults = jpipe.recv()
+        data_ax.append(jresults[0])
+        t_ax_local.append(jresults[1])
+        nwm_data.append(jresults[2])
+        nwm_file_sizes.append(jresults[3])
+        
+    for process in processes:
+        process.join()
 
     print(f'Processes have returned')
+
     del weights_df
     data_array = np.concatenate(data_ax)
     t_ax_local = [item for sublist in t_ax_local for item in sublist]
@@ -129,7 +160,7 @@ def multiprocess_data_extract(files : list, nprocs : int, weights_df : pd.DataFr
   
     return data_array, t_ax_local, nwm_data, nwm_file_sizes_out
 
-def forcing_grid2catchment(nwm_files: list, 
+def forcing_grid2catchment(connection, nwm_files: list, 
                            fs=None, 
                            ngen_variables = [], 
                            ngen_vars_plot = [], 
@@ -249,7 +280,9 @@ def forcing_grid2catchment(nwm_files: list,
         report_usage()
 
     if ii_verbose: print(f'Process #{id} completed data extraction, returning data to primary process',flush=True)
-    return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
+    connection.send([data_list, t_list, nwm_data_plot, nwm_file_sizes_MB])
+    connection.close()
+    return #[data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
 def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
     """
@@ -546,7 +579,7 @@ def multiprocess_write_tar(catchments,filenames,tar_buffs):
         ):
             pass
 
-def write_netcdf(data:np.ndarray, t_ax:list, catchments:list, prefix:str, filename:str, storage_type:str):
+def write_netcdf(connection,data:np.ndarray, t_ax:list, catchments:list, prefix:str, filename:str, storage_type:str):
     """
     Write 3D array data to a NetCDF file.
 
@@ -581,6 +614,10 @@ def write_netcdf(data:np.ndarray, t_ax:list, catchments:list, prefix:str, filena
         make_forcing_netcdf(nc_filename, catchments, t_utc, data)
         print(f'netcdf has been written to {nc_filename}')  
         netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
+
+    connection.send([netcdf_cat_file_size])
+    connection.close()
+
     return netcdf_cat_file_size  
 
 def multiprocess_write_netcdf(data:np.ndarray, jcatchment_dict:dict, t_ax:np.ndarray):  
@@ -616,17 +653,46 @@ def multiprocess_write_netcdf(data:np.ndarray, jcatchment_dict:dict, t_ax:np.nda
     njobs = len(jcatchment_dict)
 
     netcdf_cat_file_sizes = []
-    with cf.ProcessPoolExecutor(max_workers=min(njobs,nprocs)) as pool:
-        for results in pool.map(
-            write_netcdf,
-            data_list, 
-            [t_ax for x in range(njobs)],
-            catchments_list,
-            [forcing_path for x in range(njobs)],
-            filenames,
-            [storage_type for x in range(njobs)]
-            ):
-            netcdf_cat_file_sizes.append(results)
+    # with cf.ProcessPoolExecutor(max_workers=min(njobs,nprocs)) as pool:
+    #     for results in pool.map(
+    #         write_netcdf,
+    #         data_list, 
+    #         [t_ax for x in range(njobs)],
+    #         catchments_list,
+    #         [forcing_path for x in range(njobs)],
+    #         filenames,
+    #         [storage_type for x in range(njobs)]
+    #         ):
+    #         netcdf_cat_file_sizes.append(results)
+    idx=0
+    nbatch = (njobs - 1) // nprocs + 1
+    for k in range(nbatch):
+        parent_pipes=[]
+        processes = []
+        batch_nprocs = min(nprocs,njobs-idx)
+        for j,jproc in enumerate(range(batch_nprocs)):            
+            parent_conn, child_conn = Pipe()
+            parent_pipes.append(parent_conn)
+            process = Process(target=write_netcdf, args=(child_conn,
+            data_list[idx],
+            t_ax,
+            catchments_list[idx],  
+            forcing_path,
+            filenames[idx],  
+            storage_type)
+            )
+            processes.append(process)
+            idx += 1
+
+        for process in processes:
+            process.start()
+
+        for jpipe in parent_pipes:
+            jresults = jpipe.recv()
+            netcdf_cat_file_sizes.append(jresults[0])
+            
+        for process in processes:
+            process.join()            
 
     return netcdf_cat_file_sizes
 
@@ -684,8 +750,7 @@ def prep_ngen_data(conf):
     datentime = datetime.utcnow().strftime("%m%d%y_%H%M%S")   
 
     log_file = "./profile_fp.txt"   
-    log_time("FORCINGPROCESSOR_START", log_file) 
-    log_time("CONFIGURATION_START", log_file) 
+
 
     gpkg_file = conf['forcing'].get("gpkg_file",None)
     nwm_file = conf['forcing'].get("nwm_file","")
@@ -696,6 +761,11 @@ def prep_ngen_data(conf):
     global output_path, output_file_type
     output_path = conf["storage"].get("output_path","")
     output_file_type = conf["storage"].get("output_file_type","csv") 
+
+    if "s3://" in output_path:
+        log_file = output_path + '/metadata/forcings_metadata' + log_file
+    log_time("FORCINGPROCESSOR_START", log_file) 
+    log_time("CONFIGURATION_START", log_file)     
 
     global ii_verbose, nprocs
     ii_verbose = conf["run"].get("verbose",False) 
@@ -737,9 +807,16 @@ def prep_ngen_data(conf):
         storage_type = "local"
 
     nwm_forcing_files = []
-    with open(nwm_file,'r') as fp:
-        for jline in fp.readlines():
-            nwm_forcing_files.append(jline.strip())
+    if 's3://' in nwm_file:
+        client=boto3.client("s3")
+        nwm_bucket, nwm_key = convert_url2key(nwm_file,"s3")
+        response = client.get_object(Bucket=nwm_bucket,Key=nwm_key)
+        nwm_file = response['Body'].read().decode('utf-8')
+        nwm_forcing_files = [x for x in nwm_file.split('\n') if x]
+    else:
+        with open(nwm_file,'r') as fp:
+            for jline in fp.readlines():
+                nwm_forcing_files.append(jline.strip())
     nfiles = len(nwm_forcing_files)         
 
     log_time("CONFIGURATION_END", log_file)
@@ -802,11 +879,11 @@ def prep_ngen_data(conf):
                 Bucket=bucket,
                 Key=conf_path
             )
-        s3.upload_file(
-                nwm_file,
-                bucket,
-                filenamelist_path
-            )
+        # s3.upload_file(
+        #         nwm_file,
+        #         bucket,
+        #         filenamelist_path
+        #     )
         buf = BytesIO()
         filename = metaf_path + f"/weights.parquet" 
         weights_df.to_parquet(buf, index=False)         
@@ -1023,11 +1100,11 @@ def prep_ngen_data(conf):
     if storage_type == "s3": 
         bucket, key  = convert_url2key(metaf_path,storage_type)
         log_path = key + '/profile_fp.txt'
-        s3.upload_file(
-                f'./profile_fp.txt',
-                bucket,
-                log_path
-            )
+        # s3.upload_file(
+        #         f'./profile_fp.txt',
+        #         bucket,
+        #         log_path
+        #     )
     else:
         os.system(f"mv ./profile_fp.txt {metaf_path}")    
 
@@ -1049,3 +1126,4 @@ if __name__ == "__main__":
             conf = json.load(open(args.infile))
 
     prep_ngen_data(conf)
+
