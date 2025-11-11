@@ -21,9 +21,9 @@ def plot_ngen_forcings(
         t_ax           : list,
         catchment_ids  : list,
         ngen_vars_plot : list,
-        ngen_variables  : list,
-        nwm_variables   : list,
-        output_dir     : Path = './GIFs'
+        output_dir     : Path = './GIFs',
+        ngen_variables  : list = nwm_cfe_variables,
+        nwm_variables   : list = ngen_cfe_variables,
         ):
     """
     Generates side-by-side gif of nwm and ngen forcing data
@@ -189,8 +189,8 @@ if __name__ == "__main__":
         t_ax,
         catchment_ids,
         requested_ngen_variables,
+        args.output_dir,
         ngen_variables,
         nwm_variables,
-        args.output_dir
         )
     print(f'Gifs creation complete')

@@ -29,7 +29,7 @@ conf = {
     "storage":{
         "output_path"       : str(DATA_DIR),
         "output_file_type"  : ["netcdf","csv"]
-    },    
+    },
 
     "run" : {
         "verbose"       : False,
@@ -69,16 +69,16 @@ nwmurl_conf = {
 
 def test_forcings_plot(download_gpkg):
     nwmurl_conf['start_date'] = date + hourminute
-    nwmurl_conf['end_date']   = date + hourminute    
-    nwmurl_conf["urlbaseinput"] = 7    
+    nwmurl_conf['end_date']   = date + hourminute
+    nwmurl_conf["urlbaseinput"] = 7
 
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
 
     nwm_dir = os.path.join(DATA_DIR,'nwm_forcings')
     if not os.path.exists(nwm_dir):
-        os.system(f"mkdir {nwm_dir}")    
-    
+        os.system(f"mkdir {nwm_dir}")
+
     filenamelist_file = "./filenamelist.txt"
     with open(filenamelist_file,'r') as fp:
         urls = fp.readlines()
@@ -92,29 +92,31 @@ def test_forcings_plot(download_gpkg):
         else:
             raise Exception(f'Failed to download file')
 
-    nwm_data = get_nwm_data_array(nwm_dir,geopackage)             
+    nwm_data = get_nwm_data_array(nwm_dir,geopackage)
 
     forcings_nc = os.path.join(DATA_DIR,"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc")
-    ngen_data, t_ax, catchment_ids = nc_to_3darray(forcings_nc)            
+    ngen_data, t_ax, catchment_ids = nc_to_3darray(forcings_nc)
 
     plot_ngen_forcings(
-        nwm_data, 
-        ngen_data, 
-        geopackage, 
-        t_ax, 
+        nwm_data,
+        ngen_data,
+        geopackage,
+        t_ax,
         catchment_ids,
         ["TMP_2maboveground"],
+        ngen_variables,
+        nwm_variables,
         os.path.join(DATA_DIR,'metadata/GIFs')
         )
-    
+
     os.remove(forcings_nc)
     os.system(f'rm -rf {str(DATA_DIR)}forcings/*.parquet')
-    ngen_data, t_ax, catchment_ids = csvs_to_3darray(os.path.join(DATA_DIR,'forcings')) 
+    ngen_data, t_ax, catchment_ids = csvs_to_3darray(os.path.join(DATA_DIR,'forcings'))
     plot_ngen_forcings(
-        nwm_data, 
-        ngen_data, 
-        geopackage, 
-        t_ax, 
+        nwm_data,
+        ngen_data,
+        geopackage,
+        t_ax,
         catchment_ids,
         ["TMP_2maboveground"],
         os.path.join(DATA_DIR,'metadata/GIFs')
