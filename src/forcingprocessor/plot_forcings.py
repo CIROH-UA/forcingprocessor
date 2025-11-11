@@ -132,7 +132,7 @@ def csvs_to_3darray(forcings_dir   : os.PathLike,
 def get_nwm_data_array(
         nwm_folder : list,
         geopackage : gpd.GeoDataFrame,
-        nwm_vars   : np.ndarray
+        nwm_vars   : list = nwm_cfe_variables
         ) -> np.ndarray:
     """
     Inputs a folder of national water model files and nwm variable names to extract.
