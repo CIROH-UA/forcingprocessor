@@ -80,7 +80,7 @@ def plot_ngen_forcings(
         imageio.mimsave(os.path.join(output_dir, f'{nwm_variable}_2_{ngen_variable}.gif')    , images, loop=0, fps=2)
 
 def nc_to_3darray(forcings_nc    : os.PathLike,
-                  requested_vars : list
+                  requested_vars : list = ngen_cfe_variables
                   ) -> np.ndarray:
     '''
     forcings_nc : path to ngen forcings netcdf
@@ -99,8 +99,8 @@ def nc_to_3darray(forcings_nc    : os.PathLike,
     return ngen_data, t_ax_dt, catchment_ids
 
 def csvs_to_3darray(forcings_dir   : os.PathLike,
-                    requested_vars : list,
-                    ngen_variables : list
+                    requested_vars : list = ngen_cfe_variables,
+                    ngen_variables : list = ngen_cfe_variables
                     ) -> np.ndarray:
     '''
     forcings_dir : directory containing ngen forcings csvs

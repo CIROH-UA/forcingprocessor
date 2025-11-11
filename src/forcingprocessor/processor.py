@@ -941,7 +941,7 @@ def prep_ngen_data(conf):
             else:
                 gif_out = Path(meta_path,'GIFs')
             plot_ngen_forcings(nwm_data, data_array[:,jplot_vars,:], gpkg_files[0], t_ax, cat_ids,
-                               ngen_vars_plot, ngen_variables, nwm_variables, gif_out)
+                               ngen_vars_plot, gif_out, ngen_variables, nwm_variables)
             if storage_type == "s3":
                 sync_cmd = f'aws s3 sync ./GIFs {meta_path}/GIFs'
                 os.system(sync_cmd)
