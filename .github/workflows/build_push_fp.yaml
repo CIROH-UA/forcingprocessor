@@ -141,12 +141,14 @@ jobs:
         retention-days: 10
 
     - name: Login to Docker Hub
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Push docker containers
+      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
       run: |
         if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
           VERSION_TAG="${{ needs.detect-changes.outputs.deps_version }}"
@@ -181,12 +183,14 @@ jobs:
       - name: Prepare execution config
         id: prep_config 
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.branch_name }}" ]; then
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ] && [ -n "${{ inputs.branch_name }}" ]; then
             BRANCH_NAME="${{ inputs.branch_name }}"
+          elif [ "${{ github.event_name }}" = "pull_request" ]; then
+            BRANCH_NAME="${{ github.head_ref }}"
           else
             BRANCH_NAME="${{ github.ref_name }}"
           fi
-
+          echo "Using BRANCH_NAME=$BRANCH_NAME for ARM build"
           sed -i "s|\${BRANCH_NAME}|$BRANCH_NAME|g" .github/executions/fp_push_execution_arm.json
           if [ "${{ needs.detect-changes.outputs.build_deps }}" != "true" ]; then
             sed -i "/docker-compose\.yml build forcingprocessor-deps/d" .github/executions/fp_push_execution_arm.json
@@ -207,6 +211,7 @@ jobs:
             BUILD_FLAGS="$BUILD_FLAGS -f"
             FP_TAG="${{ needs.detect-changes.outputs.fp_version }}-arm64"
           fi
+
 
           if [ -z "$BUILD_FLAGS" ]; then
             echo "No components changed, skipping ARM build"
@@ -232,6 +237,10 @@ jobs:
 
           echo "Building with DEPS_TAG: $DEPS_TAG, FP_TAG: $FP_TAG and FLAGS: $BUILD_FLAGS"
           cat .github/executions/fp_push_execution_arm.json
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            sed -i "/docker_loginNpush\.sh/d" .github/executions/fp_push_execution_arm.json
+            sed -i "/docker_login_log\.txt/d" .github/executions/fp_push_execution_arm.json
+          fi
 
       - name: clone ngen
         if: steps.prep_config.outputs.skip_arm_build != 'true'
@@ -344,12 +353,10 @@ jobs:
           terraform destroy -var-file=variables.tfvars -auto-approve
           sleep 60
 
-
-
   create-manifest:
     name: Create and Push Manifest
     needs: [detect-changes, build-test-push-docker-arm]
-    if: needs.detect-changes.outputs.build_deps == 'true' || needs.detect-changes.outputs.build_fp == 'true'
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.detect-changes.outputs.build_deps == 'true' || needs.detect-changes.outputs.build_fp == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Log in to Docker Hub
@@ -357,7 +364,7 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
+          
       - name: Create and push manifest forcingprocessor-deps
         if: needs.detect-changes.outputs.build_deps == 'true'
         run: |
