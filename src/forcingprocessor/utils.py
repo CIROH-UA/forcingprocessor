@@ -3,7 +3,7 @@ import numpy as np
 from datetime import timezone
 import psutil
 
-nwm_variables = [
+nwm_cfe_variables = [
         "U2D",
         "V2D",
         "LWDOWN",
@@ -15,17 +15,27 @@ nwm_variables = [
         "SWDOWN",
     ]
 
-ngen_variables = [
+ngen_cfe_variables = [
         "UGRD_10maboveground",
         "VGRD_10maboveground",
         "DLWRF_surface",
         "APCP_surface",
         "precip_rate",
-        "TMP_2maboveground",        
+        "TMP_2maboveground",
         "SPFH_2maboveground",
         "PRES_surface",
         "DSWRF_surface",
-    ] 
+    ]
+
+nwm_dhbv2_variables = [
+        "RAINRATE",
+        "T2D",
+    ]
+
+ngen_dhbv2_variables = [
+        "P",
+        "Temp",
+    ]
 
 vpus = ["01","02","03W","03S","03N","04","05","06","07","08","09","10L","10U","11","12","13","14","15","16","17","18"]
 
@@ -43,17 +53,17 @@ def get_window(weights_df):
         y_min_list = []
         y_max_list = []
         idx_2d = []
-        for row in weights_df.itertuples(): 
+        for row in weights_df.itertuples():
             indices = row.cell_id
             idx_2d=np.unravel_index(indices, (1, nx, ny), order='F')
             x_min_list.append(np.min(idx_2d[1]))
             x_max_list.append(np.max(idx_2d[1]))
             y_min_list.append(np.min(idx_2d[2]))
-            y_max_list.append(np.max(idx_2d[2]))   
-        x_min=np.min(x_min_list)   
-        x_max=np.max(x_max_list)   
-        y_min=np.min(y_min_list)   
-        y_max=np.max(y_max_list) 
+            y_max_list.append(np.max(idx_2d[2]))
+        x_min=np.min(x_min_list)
+        x_max=np.max(x_max_list)
+        y_min=np.min(y_min_list)
+        y_max=np.max(y_max_list)
     else:
         x_min = 0
         x_max = nx - 1
@@ -72,7 +82,7 @@ def report_usage():
     percent_ram = psutil.virtual_memory()[2]
     percent_cpu = psutil.cpu_percent()
     print(f'\nCurrent RAM usage (GB): {usage_ram:.2f}, {percent_ram:.2f}%\nCurrent CPU usage : {percent_cpu:.2f}%')
-    return usage_ram, percent_ram, percent_cpu        
+    return usage_ram, percent_ram, percent_cpu
 
 def convert_url2key(nwm_file,fs_type):
     bucket_key = ""
@@ -87,17 +97,18 @@ def convert_url2key(nwm_file,fs_type):
         bucket = _nc_file_parts[3]
     elif fs_type == 's3':
         bucket = _nc_file_parts[2]
-    
+
     return bucket, bucket_key
 
 
 def make_forcing_netcdf(out_path:str,
                         catchments:np.ndarray,
                         t_ax:np.ndarray,
-                        input_array:np.ndarray) -> None:
+                        input_array:np.ndarray,
+                        ngen_variables:list) -> None:
     """
     Create a netcdf file with the forcing data.
-    
+
     Parameters:
     out_path (str): Path to save the netcdf file.
     catchments (np.ndarray): Array of catchment IDs.
@@ -105,17 +116,17 @@ def make_forcing_netcdf(out_path:str,
     input_array (np.ndarray): Forcing data array with shape (ncat, nt, forcing variables).
     """
     import netCDF4 as nc
-    
+
     with nc.Dataset(out_path, 'w', format='NETCDF4') as ds:
         ds.createDimension('catchment-id', len(catchments))
         ds.createDimension('time', len(t_ax))
-        
+
         ids_var = ds.createVariable('ids', str, ('catchment-id',))
         ids_var[:] = catchments
 
         time_var = ds.createVariable('Time', 'f8', ('catchment-id', 'time'))
         time_var[:] =  t_ax
-        
+
         for i, var_name in enumerate(ngen_variables):
             var = ds.createVariable(var_name, 'f8', ('catchment-id', 'time'))
             var[:] = input_array[:, :, i]
