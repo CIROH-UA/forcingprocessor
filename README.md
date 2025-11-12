@@ -1,7 +1,7 @@
 # Forcing Processor
-Forcingprocessor converts National Water Model (NWM) forcing data into Next Generation National Water Model (NextGen) forcing data. This tool provides the forcing pre-processing for the [NextGen Research DataStream](https://github.com/CIROH-UA/ngen-datastream). 
+Forcingprocessor converts National Water Model (NWM) forcing data into Next Generation National Water Model (NextGen) forcing data. This tool provides the forcing pre-processing for the [NextGen Research DataStream](https://github.com/CIROH-UA/ngen-datastream).
 
-The motivation for this tool is NWM data is gridded and stored within netCDFs for each forecast hour. Ngen inputs this same forcing data, but in the format of catchment averaged data time series data. 
+The motivation for this tool is NWM data is gridded and stored within netCDFs for each forecast hour. Ngen inputs this same forcing data, but in the format of catchment averaged data time series data.
 
 ![forcing_gif](docs/gifs/T2D_2_TMP_2maboveground_cali.gif)
 
@@ -28,7 +28,7 @@ Prior to executing the processor, the user will need to obtain a geopackage file
     "storage":{
         "output_path"      : "",
         "output_file_type" : []
-    },    
+    },
 
     "run" : {
         "verbose"       : true,
@@ -43,18 +43,18 @@ Prior to executing the processor, the user will need to obtain a geopackage file
             "APCP_surface",
             "precip_rate",
             "TMP_2maboveground"
-        ] 
+        ]
     }
 }
 ```
 
-## `conf.json` Options 
+## `conf.json` Options
 ### 1. Forcing
 | Field             | Description              | Required |
 |-------------------|--------------------------|----------|
 | nwm_file          | Path to a text file containing nwm file names. One filename per line. [Tool](#nwm_file) to create this file | :white_check_mark: |
 | gpkg_file       | Geopackage file to define spatial domain. Use [hfsubset](https://github.com/lynker-spatial/hfsubsetCLI) to generate a geopackage with a `forcing-weights` layer. Accepts local absolute path, s3 URI or URL. Also acceptable is a weights parquet generated with [weights_hf2ds.py](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/weights_hf2ds.py), though the plotting option will no longer be available. |  :white_check_mark: |
-| model_type       | Model for which forcings will be generated. Accepts 'cfe' or 'dhbv2'. Defaults to 'cfe'. |  |
+| model_type       | List of model(s) for which forcings will be generated. Accepts ["cfe","dhbv2"]. Defaults to 'cfe'. |  |
 
 ### 2. Storage
 
@@ -83,21 +83,21 @@ ngen_cfe_variables = [
     "VGRD_10maboveground",
     "DLWRF_surface",
     "APCP_surface",
-    "precip_rate", 
-    "TMP_2maboveground",        
+    "precip_rate",
+    "TMP_2maboveground",
     "SPFH_2maboveground",
     "PRES_surface",
     "DSWRF_surface",
-] 
+]
 
 ngen_dhbv2_variables = [
     "P",
-    "Temp",   
+    "Temp",
 ]
-```  
+```
 
 ## nwm_file
-A text file given to forcingprocessor that contains each nwm forcing file name. These can be URLs or local paths. This file can be generated with the [nwmurl tool](https://github.com/CIROH-UA/nwmurl) and a [generator script](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/nwm_filenames_generator.py) has been provided within this repo. The config argument accepts an s3 URL. 
+A text file given to forcingprocessor that contains each nwm forcing file name. These can be URLs or local paths. This file can be generated with the [nwmurl tool](https://github.com/CIROH-UA/nwmurl) and a [generator script](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/nwm_filenames_generator.py) has been provided within this repo. The config argument accepts an s3 URL.
  ```
  python nwm_filenames_generator.py conf_nwm_files.json
  ```
@@ -118,7 +118,7 @@ A text file given to forcingprocessor that contains each nwm forcing file name. 
  ```
 
 ## Weights
-To calculate NextGen forcings, "weights" must be calculated to extract polygon averaged data from gridded data. The weights are made up of two parts, the `cell_id` and `coverage`. These are calculated via [exactextract](https://github.com/isciences/exactextract) within [weights_hf2ds.py](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/weights_hf2ds.py), which is optionally called from forcingprocessor. 
+To calculate NextGen forcings, "weights" must be calculated to extract polygon averaged data from gridded data. The weights are made up of two parts, the `cell_id` and `coverage`. These are calculated via [exactextract](https://github.com/isciences/exactextract) within [weights_hf2ds.py](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/weights_hf2ds.py), which is optionally called from forcingprocessor.
 
 If a geopackage is supplied to forcingprocessor, it will be searched for the layer `forcings-weights`. If this layer is found, these weights are used during processing. If not, forcingprocessor will call [weights_hf2ds.py](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/weights_hf2ds.py) to calculate the weights (cell_id and coverage) for every divide-id in the geopackage. This can take time, so forcingprocessor will write a parquet of weights out in the metadata, that can be reused in future forcingprocessor executions.
 

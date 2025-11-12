@@ -8,7 +8,7 @@
         "storage_type"      : "local",
         "output_path"       : "./forcings",
         "output_file_type" : ["csv","tar"]
-    },    
+    },
 
     "run" : {
         "verbose"       : true,
