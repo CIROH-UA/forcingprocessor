@@ -2,14 +2,14 @@
     "forcing"  : {
         "nwm_file"   : "filenamelist.txt",
         "gpkg_file"  : ["cat-88306_subset.gpkg"],
-        "model_type" : "dhbv2"
+        "model_type" : ["cfe", "dhbv2"]
     },
 
     "storage":{
         "storage_type"      : "local",
         "output_path"       : "./forcings",
         "output_file_type" : ["csv","tar"]
-    },    
+    },
 
     "run" : {
         "verbose"       : true,

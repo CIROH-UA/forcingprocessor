@@ -701,12 +701,17 @@ def prep_ngen_data(conf):
     gpkg_file = conf['forcing'].get("gpkg_file",None)
     nwm_file = conf['forcing'].get("nwm_file","")
     model_type = conf['forcing'].get("model_type","cfe")
-    assert model_type in ["cfe","dhbv2"], f"model_type {model_type} not supported"
 
-    if model_type == "cfe":
+    # multiple model types are supported (e.g. ['cfe','dhbv2'])
+    # if both are specified, dhbv2 will use the precip_rate (mm/s) variable from cfe
+
+    if "cfe" in model_type:
         ngen_variables = ngen_cfe_variables
         nwm_variables = nwm_cfe_variables
-    else:
+        if "dhbv2" in model_type:
+            ngen_variables.append("Temp")
+            nwm_variables.append("T2D")
+    elif "dhbv2" in model_type:
         ngen_variables = ngen_dhbv2_variables
         nwm_variables = nwm_dhbv2_variables
 
@@ -889,8 +894,9 @@ def prep_ngen_data(conf):
                                                                               nwm_variables)
     ngen_variables_to_print = ngen_variables.copy()
 
-    if model_type == "dhbv2":
-        data_array[:,1,:] = data_array[:,1,:] - 273.15  # Convert Kelvin to Celsius
+    if "dhbv2" in model_type:
+        # This section only works if temperature is the last variable in the list
+        data_array[:,-1,:] = data_array[:,-1,:] - 273.15  # Convert Kelvin to Celsius
         catchments = list(weights_df.index)
         cat_lats = multiprocess_get_lats(gpkg_files, nprocs)
         data_array = add_pet_to_dataset(data_array, t_ax, catchments, cat_lats)
@@ -1000,14 +1006,14 @@ def prep_ngen_data(conf):
         }
 
         data_avg = np.average(data_array,axis=0)
-        if model_type == "dhbv2": # TODO: add PET variable to graphs, edit range for temperature
-            data_avg = np.delete(data_avg, 2, axis=0)  # Remove the PET variable for average stats
+        if "dhbv2" in model_type: # TODO: add PET variable to graphs, edit range for temperature
+            data_avg = np.delete(data_avg, -1, axis=0)  # Remove the PET variable for average stats
         avg_df = pd.DataFrame(data_avg.T,columns=ngen_variables)
         avg_df.insert(0,"catchment id",forcing_cat_ids)
 
         data_med = np.median(data_array,axis=0)
-        if model_type == "dhbv2":
-            data_med = np.delete(data_med, 2, axis=0)  # Remove the PET variable for median stats
+        if "dhbv2" in model_type:
+            data_med = np.delete(data_med, -1, axis=0)  # Remove the PET variable for median stats
         med_df = pd.DataFrame(data_med.T,columns=ngen_variables)
         med_df.insert(0,"catchment id",forcing_cat_ids)
 

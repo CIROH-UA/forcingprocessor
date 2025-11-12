@@ -89,7 +89,7 @@ def add_pet_to_dataset(dataset: np.ndarray, t_ax: list, catchments: list,
             ts_diff = num_ts-day_chunk_start_idx
         #day_chunk = dataset.isel(
          #   time=slice(day_chunk_start_idx,day_chunk_start_idx+ts_diff))['TMP_2maboveground']
-        cat_temps = dataset[:,1, :][day_chunk_start_idx:day_chunk_start_idx+ts_diff, :]
+        cat_temps = dataset[:,-1, :][day_chunk_start_idx:day_chunk_start_idx+ts_diff, :]
 
         # calculate stats
         tmin = np.min(cat_temps, axis=0)

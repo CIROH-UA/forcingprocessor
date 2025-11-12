@@ -33,7 +33,7 @@ nwm_dhbv2_variables = [
     ]
 
 ngen_dhbv2_variables = [
-        "P",
+        "precip_rate",
         "Temp",
     ]
 
