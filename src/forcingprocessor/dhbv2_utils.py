@@ -1,11 +1,11 @@
 """Functions for dHBV2 model forcings processing."""
 
-import warnings
 import concurrent.futures as cf
 
 import numpy as np
 import pandas as pd
 import geopandas as gpd
+from pyproj import Transformer
 
 SOLAR_CONSTANT = 0.0820
 TMP1 = (24.0 * 60.0) / np.pi
@@ -125,11 +125,18 @@ def get_lats(gdf_path: str) -> dict:
     cats = gdf['divide_id']
 
     # convert to a geographic crs so we get actual degrees for lat/lon
-    gdf_geog = gdf.to_crs(4326)
-    with warnings.catch_warnings(): # it will complain about it being a
-        # geographic CRS, this is to shut it up
-        warnings.simplefilter("ignore")
-        lats = gdf_geog.centroid.y
+    # print(gdf.crs)
+    # gdf_geog = gdf.to_crs(4326)
+    # with warnings.catch_warnings(): # it will complain about it being a
+    #     # geographic CRS, this is to shut it up
+    #     warnings.simplefilter("ignore")
+    #     lats = gdf_geog.centroid.y
+    source_crs = 'EPSG:5070'
+    target_crs = 'EPSG:4326'
+    transformer = Transformer.from_crs(source_crs, target_crs, always_xy=True)
+    x_coords = gdf.centroid.x
+    y_coords = gdf.centroid.y
+    _, lats = transformer.transform(x_coords,y_coords)
 
     cat_lat = dict(zip(cats, lats))
     return cat_lat
