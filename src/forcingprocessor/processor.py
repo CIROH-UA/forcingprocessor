@@ -17,7 +17,7 @@ import tarfile, tempfile
 from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
-from forcingprocessor.channel_routing_tools import channelrouting_nwm2ngen
+from forcingprocessor.channel_routing_tools import channelrouting_nwm2ngen, write_netcdf_chrt
 
 B2MB = 1048576
 
@@ -961,14 +961,18 @@ def prep_ngen_data(conf):
     if ii_verbose: print(f'Data extract processs: {nprocs:.2f}\nExtract time: {t_extract:.2f}\nComplexity: {complexity:.2f}\nScore: {score:.2f}\n', end=None,flush=True)
     log_time("PROCESSING_END", log_file)
 
-    breakpoint()
     log_time("FILEWRITING_START", log_file)
     t0 = time.perf_counter()
     if "netcdf" in output_file_type:
         if data_source == "forcings":
             netcdf_cat_file_sizes_MB = multiprocess_write_netcdf(data_array, jcatchment_dict, t_ax)
         else:
-            pass #TODO fill in here
+            if FCST_CYCLE is None:
+                filename = 'qlaterals.nc'
+            else:
+                filename = f'ngen.{FCST_CYCLE}z.{URLBASE}.channel_routing.{LEAD_START}_{LEAD_END}.nc'
+            netcdf_cat_file_sizes_MB = write_netcdf_chrt(
+                storage_type, forcing_path, data_array, t_ax, filename)
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):

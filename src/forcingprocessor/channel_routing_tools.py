@@ -6,10 +6,13 @@ import os
 from io import BytesIO
 import time
 from datetime import datetime
+from pathlib import Path
 import gcsfs
 import requests
 import xarray as xr
 import numpy as np
+import pandas as pd
+import boto3
 from forcingprocessor.utils import convert_url2key, report_usage
 
 B2MB = 1048576
@@ -119,3 +122,49 @@ def channelrouting_nwm2ngen(nwm_files: list,
         print(f'Process #{id} completed data extraction, returning data to primary process',
               flush=True)
     return [data_list, t_list, nwm_file_sizes_MB]
+
+def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: list, name: str):
+    """
+    Write channel routing data to a NetCDF file.
+
+    Parameters:
+        storage_type (str): s3 or local
+        prefix (Path): filename prefix
+        data (numpy.ndarray): 2D array with dimensions (nexus-id, qlateral).
+        times (list): list representing time axis.
+        name (str): string for the filename
+    Returns:
+        netcdf_cat_file_size (int): file size of output netcdf
+    """
+    if storage_type == 's3':
+        s3_client = boto3.session.Session().client("s3")
+        nc_filename = str(prefix) + "/" + name
+    else:
+        nc_filename = Path(prefix, name)
+
+    time_coord = pd.to_datetime(times)
+    feature_ids = data[0, :, 0]
+    q_lateral = data[:, :, 1].astype(float)
+
+    ds = xr.Dataset(
+    {
+        "q_lateral": (("time", "feature_id"), q_lateral)
+    },
+    coords={
+        "time": time_coord,
+        "feature_id": feature_ids
+        }
+    )
+
+    if storage_type == 's3':
+        bucket, key = convert_url2key(nc_filename,'s3')
+        ds.to_netcdf(nc_filename)
+        netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
+        print(f"Uploading netcdf forcings to S3: bucket={bucket}, key={key}")
+        s3_client.upload_file(nc_filename, bucket, key)
+        os.remove(nc_filename)
+    else:
+        ds.to_netcdf(nc_filename)
+        print(f'netcdf has been written to {nc_filename}')
+        netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
+    return netcdf_cat_file_size
