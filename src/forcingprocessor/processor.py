@@ -362,7 +362,7 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path,data_source_type)
             if data_source_type == "forcings":
                 worker_data = data[:,:,start:end]
             else:
-                worker_data = data[start:end,:,:]
+                worker_data = data[:,start:end,:]
             worker_data_list.append(worker_data)
             start = end
 
@@ -474,7 +474,8 @@ def write_data_df(
             df_data = data[:,j,:]
             df = pd.DataFrame(df_data, columns=["feature_id", "q_lateral"])
             df = df[["q_lateral"]]
-
+            df['time'] = t_ax
+            df = df[['time', 'q_lateral']] #reorder cols to maintain parity
         t_df += time.perf_counter() - t0
 
         if data_source_arg == "forcings":

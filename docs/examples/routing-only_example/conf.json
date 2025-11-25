@@ -7,7 +7,7 @@
     "storage":{
         "storage_type"      : "local",
         "output_path"       : "./forcings",
-        "output_file_type" : ["netcdf"]
+        "output_file_type" : ["netcdf", "csv"]
     },
 
     "run" : {
