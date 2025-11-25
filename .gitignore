@@ -1,0 +1,8 @@
+.DS_Store
+.venv/
+src/forcingprocessor.egg-info/
+src/forcingprocessor/__pycache__/
+tests/__pycache__/
+tests/data/
+tests/*.txt
+docs/examples/*/forcings

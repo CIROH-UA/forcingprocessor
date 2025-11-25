@@ -1,0 +1,18 @@
+{
+    "forcing"  : {
+        "nwm_file"   : "filenamelist.txt",
+        "gpkg_file"  : ["hf2.2_ref_hf_map_nexus.json"]
+    },
+
+    "storage":{
+        "storage_type"      : "local",
+        "output_path"       : "./forcings",
+        "output_file_type" : ["csv","tar"]
+    },
+
+    "run" : {
+        "verbose"       : true,
+        "collect_stats" : true,
+        "nprocs"        : 8
+    }
+}
