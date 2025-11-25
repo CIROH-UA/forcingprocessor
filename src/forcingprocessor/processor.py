@@ -17,6 +17,7 @@ import tarfile, tempfile
 from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
+from forcingprocessor.channel_routing_tools import channelrouting_nwm2ngen
 
 B2MB = 1048576
 
@@ -304,113 +305,6 @@ def forcing_grid2catchment(nwm_files: list,
 
     if ii_verbose: print(f'Process #{id} completed data extraction, returning data to primary process',flush=True)
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
-
-def channelrouting_nwm2ngen(nwm_files: list,
-                            mapping_arg: dict,
-                            fs_type_arg: str,
-                            fs_arg = None,
-                            ii_verbose_arg: bool = False
-                            ):
-    """
-    Retrieve catchment level data from national water model files
-
-    Inputs:
-    nwm_files (list): list of filenames (urls for remote, local paths otherwise),
-    fs_arg (filesystem): an optional file system for cloud storage reads
-    mapping_arg (dict): dictionary of NWM to NGEN ID maps
-    fs_type_arg (str): type of file system
-    ii_verbose_arg (bool): verbosity
-
-    Outputs: [data_list, t_list, nwm_file_sizes_MB]
-    data_list (list): list of ngen forcings ordered in time.
-    t_list (list): list of model output times
-    nwm_file_sizes_MB (list): list of file sizes of input CHRTOUT data
-    """
-    topen = 0
-    txrds = 0
-    tfill = 0
-    tdata = 0
-    t_list = []
-    nfiles = len(nwm_files)
-    ncatch = len(mapping_arg)
-
-    if fs_type == 'google' :
-        fs_arg = gcsfs.GCSFileSystem()
-    pid = os.getpid()
-    if ii_verbose:
-        print(f'Process #{pid} extracting data from {nfiles} files',end=None,flush=True)
-    data_list = []
-    nwm_file_sizes_MB = []
-    for j, nwm_file in enumerate(nwm_files):
-        t0 = time.perf_counter()
-        if fs_arg:
-            if nwm_file.find('https://') >= 0:
-                _, bucket_key = convert_url2key(nwm_file,fs_type_arg)
-            else:
-                bucket_key = nwm_file
-            file_obj   = fs_arg.open(bucket_key, mode='rb')
-            nwm_file_sizes_MB.append(file_obj.details['size'])
-        elif 'https://' in nwm_file:
-            response = requests.get(nwm_file, timeout=10)
-
-            if response.status_code == 200:
-                file_obj = BytesIO(response.content)
-            else:
-                raise RuntimeError(f"{nwm_file} does not exist")
-            nwm_file_sizes_MB.append(len(response.content) / B2MB)
-        else:
-            file_obj = nwm_file
-            nwm_file_sizes_MB.append(os.path.getsize(nwm_file / B2MB))
-
-        topen += time.perf_counter() - t0
-        t0 = time.perf_counter()
-        with xr.open_dataset(file_obj) as nwm_data:
-            txrds += time.perf_counter() - t0
-            t0 = time.perf_counter()
-            data_allnwm = {}
-
-            if "retrospective" in nwm_file:
-                data_allnwm = dict(zip(nwm_data['feature_id'].values,nwm_data['q_lateral'].values))
-                t = datetime.strftime(datetime.strptime(
-                    nwm_file.split('/')[-1].split('.')[0],'%Y%m%d%H'),'%Y-%m-%d %H:%M:%S')
-            else:
-                # q_lateral is calculated by adding these three together
-                nwm_data['q_lateral'] = (nwm_data['qSfcLatRunoff'] + nwm_data['qBucket'] +
-                                         nwm_data['qBtmVertRunoff'])
-                data_allnwm = dict(zip(nwm_data['feature_id'].values,nwm_data['q_lateral'].values))
-                time_splt = nwm_data.attrs["model_output_valid_time"].split("_")
-                t = time_splt[0] + " " + time_splt[1]
-            t_list.append(t)
-        del nwm_data
-        tfill += time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        data_allngen = {}
-        for ngen_nex, nwm_ids in mapping_arg.items():
-            temp_array = []
-            for nwm_id in nwm_ids:
-                temp_array.append(data_allnwm[nwm_id])
-
-            data_allngen[ngen_nex] = sum(temp_array)
-        data_array = np.array(list(data_allngen.items()))
-
-        data_list.append(data_array)
-        tdata += time.perf_counter() - t0
-        ttotal = topen + txrds + tfill + tdata
-        if ii_verbose_arg:
-            print(f'\nAverage time for:\nfs open file: {topen/(j+1):.2f} s\n', end=None,flush=True)
-            print(f'xarray open dataset: {txrds/(j+1):.2f} s\nfill array: {tfill/(j+1):.2f} s\n',
-                  end=None,flush=True)
-            print(f'calculate catchment values: {tdata/(j+1):.2f} s\ntotal {ttotal/(j+1):.2f} s\n',
-                  end=None,flush=True)
-            print(f'percent complete {100*(j+1)/nfiles:.2f}', end=None,flush=True)
-        report_usage()
-
-    if ii_verbose:
-        print(f'Process #{id} completed data extraction, returning data to primary process',
-              flush=True)
-    return [data_list, t_list, nwm_file_sizes_MB]
-
 
 def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
     """
@@ -1067,10 +961,14 @@ def prep_ngen_data(conf):
     if ii_verbose: print(f'Data extract processs: {nprocs:.2f}\nExtract time: {t_extract:.2f}\nComplexity: {complexity:.2f}\nScore: {score:.2f}\n', end=None,flush=True)
     log_time("PROCESSING_END", log_file)
 
+    breakpoint()
     log_time("FILEWRITING_START", log_file)
     t0 = time.perf_counter()
     if "netcdf" in output_file_type:
-        netcdf_cat_file_sizes_MB = multiprocess_write_netcdf(data_array, jcatchment_dict, t_ax)
+        if data_source == "forcings":
+            netcdf_cat_file_sizes_MB = multiprocess_write_netcdf(data_array, jcatchment_dict, t_ax)
+        else:
+            pass #TODO fill in here
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):

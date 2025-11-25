@@ -6,4 +6,4 @@ tests/__pycache__/
 tests/data/
 tests/*.txt
 docs/examples/*/forcings
-docs/examples/routing-only_example/hf2.2_ref_hf_map_nexus.json
+*profile_fp.txt
