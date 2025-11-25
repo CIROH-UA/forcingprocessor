@@ -1151,6 +1151,9 @@ def prep_ngen_data(conf):
         log_time("TAR_START", log_file)
         if ii_verbose: print(f'\nWriting tarball...',flush=True)
         t0000 = time.perf_counter()
+        if data_source == "channel_routing":
+            jcatchment_dict = {1: list(nwm_ngen_map.keys())} # not really the most efficient way to
+            # do this tbh
         multiprocess_write_tar(jcatchment_dict,filenames,tar_buffs)
         tar_time = time.perf_counter() - t0000
         log_time("TAR_END", log_file)
