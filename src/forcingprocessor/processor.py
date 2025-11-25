@@ -178,7 +178,10 @@ def multiprocess_chrt_extract(files: list, num_procs: int, mapping: dict, fs):
             nwm_file_sizes.append(results[2])
 
     print('Processes have returned')
-    data_array = np.concatenate(data_ax)
+    data_array_temp = np.concatenate(data_ax)
+    data_array = data_array_temp.copy().astype(object)
+    data_array[:,:,1] = data_array[:,:,1].astype(float)
+
     t_ax_local = [item for sublist in t_ax_local for item in sublist]
     nwm_file_sizes_out = [item for sublist in nwm_file_sizes for item in sublist]
 
@@ -306,7 +309,7 @@ def forcing_grid2catchment(nwm_files: list,
     if ii_verbose: print(f'Process #{id} completed data extraction, returning data to primary process',flush=True)
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
-def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
+def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path,data_source_type):
     """
     Sets up the process pool for write_data_df.
 
@@ -316,6 +319,7 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
         catchments (iterable): List of catchment identifiers.
         nprocs (int): Number of processes to be used for writing data.
         out_path (str): Path where the output files will be saved.
+        data_source_type (str): channel_routing or forcings
 
     Returns:
         flat_ids (list): Flattened list of catchment identifiers.
@@ -355,7 +359,10 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
             if len(worker_catchment_list) == ntasked - 1 : ii_print = True
 
             end = min(start + catchments_per_proc[i],ncatchments)
-            worker_data = data[:,:,start:end]
+            if data_source_type == "forcings":
+                worker_data = data[:,:,start:end]
+            else:
+                worker_data = data[start:end,:,:]
             worker_data_list.append(worker_data)
             start = end
 
@@ -376,7 +383,7 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
     file_sizes_zipped_MB = []
     tar_buffs = []
     with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
-         for results in pool.map(
+        for results in pool.map(
         write_data_df,
         worker_data_list,
         worker_time_list,
@@ -386,14 +393,14 @@ def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path):
         [ii_verbose for x in range(nprocs)],
         [storage_type for x in range(nprocs)],
         [output_file_type for x in range(nprocs)],
-        [ntasked for x in range(nprocs)]
+        [ntasked for x in range(nprocs)],
+        [data_source_type for x in range(nprocs)]
         ):
             ids.append(results[0])
             filenames.append(results[1])
             file_sizes_MB.append(results[2])
             file_sizes_zipped_MB.append(results[3])
             tar_buffs.append(results[4])
-
     print(f'\n\nGathering data from write processes...')
 
     flat_ids = []
@@ -420,7 +427,8 @@ def write_data_df(
         ii_verbose,
         storage_type,
         output_file_type,
-        ntasked
+        ntasked,
+        data_source_arg
 ):
     """
     Write catchment forcing data to csv or parquet if requested. Also responsible for
@@ -458,23 +466,38 @@ def write_data_df(
     for j, jcatch in enumerate(catchments):
 
         t0 = time.perf_counter()
-        df_data = data[:,:,j]
-        df     = pd.DataFrame(df_data,columns=ngen_variables)
-        df.insert(0,"time",t_ax)
+        if data_source_arg == "forcings":
+            df_data = data[:,:,j]
+            df     = pd.DataFrame(df_data,columns=ngen_variables)
+            df.insert(0,"time",t_ax)
+        else:
+            df_data = data[:,j,:]
+            df = pd.DataFrame(df_data, columns=["feature_id", "q_lateral"])
+            df = df[["q_lateral"]]
+
         t_df += time.perf_counter() - t0
 
-        cat_id = jcatch.split("-")[1]
-        forcing_cat_ids.append(cat_id)
+        if data_source_arg == "forcings":
+            cat_id = jcatch.split("-")[1]
+            forcing_cat_ids.append(cat_id)
+        else:
+            nex_id = jcatch
 
         if "parquet" in output_file_type or "csv" in output_file_type :
             if "netcdf" in output_file_type: output_file_type.pop(output_file_type.index("netcdf"))
-            filename = f"cat-{cat_id}.{output_file_type[0]}"
+            if data_source_arg == "forcings":
+                filename = f"cat-{cat_id}.{output_file_type[0]}"
+            else:
+                filename = f"{nex_id}.{output_file_type[0]}"
             if j ==0:
                 if ii_verbose: print(f'{id} writing {nfiles} dataframes to {output_file_type}', end=None, flush =True)
             kwargs = {"s3": s3_client, "bucket": bucket, "key_prefix": key_prefix} if storage_type == "s3" else {"local_path": out_path}
             write_df(df, filename, storage_type, **kwargs)
         else:
-            filename = f"./cat-{cat_id}.csv"
+            if data_source_arg == "forcings":
+                filename = f"./cat-{cat_id}.csv"
+            else:
+                filename = f"./{nex_id}.csv"
 
         filenames.append(str(Path(filename).name))
 
@@ -486,7 +509,10 @@ def write_data_df(
 
         if j == 0:
             if not os.path.exists(filename):
-                filename = f"./cat-{cat_id}.csv"
+                if data_source_arg == "forcings":
+                    filename = f"./cat-{cat_id}.csv"
+                else:
+                    filename = f"./{nex_id}.csv"
                 df.to_csv(filename, index=False)
                 file_size_MB = os.path.getsize(filename) / B2MB
                 os.remove(filename)
@@ -976,8 +1002,12 @@ def prep_ngen_data(conf):
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):
-        forcing_cat_ids, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(data_array,t_ax,list(weights_df.index),nprocs,forcing_path)
-
+        if data_source == "forcings":
+            forcing_cat_ids, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(
+                data_array,t_ax,list(weights_df.index),nprocs,forcing_path,data_source)
+        else:
+            forcing_cat_ids, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(
+                data_array,t_ax,list(nwm_ngen_map.keys()),nprocs,forcing_path,data_source)
     write_time += time.perf_counter() - t0
     write_rate = ncatchments / write_time
     if ii_verbose: print(f'\n\nWrite processs: {nprocs}\nWrite time: {write_time:.2f}\nWrite rate {write_rate:.2f} files/second\n', end=None,flush=True)
@@ -1037,33 +1067,63 @@ def prep_ngen_data(conf):
             netcdf_catch_file_size_med = np.median(netcdf_cat_file_sizes_MB)
             netcdf_catch_file_size_std = np.std(netcdf_cat_file_sizes_MB)
 
-        metadata = {
-            "runtime_s"               : [round(runtime,2)],
-            "nvars_intput"            : [len(nwm_variables)],
-            "nwmfiles_input"          : [len(nwm_forcing_files)],
-            "nwm_file_size_avg_MB"    : [nwm_file_size_avg],
-            "nwm_file_size_med_MB"    : [nwm_file_size_med],
-            "nwm_file_size_std_MB"    : [nwm_file_size_std],
-            "catch_files_output"      : [nfiles],
-            "nvars_output"            : [len(ngen_variables)],
-            "individual_catch_file_size_avg_MB"  : [individual_catch_file_size_avg],
-            "individual_catch_file_size_med_MB"  : [individual_catch_file_size_med],
-            "individual_catch_file_size_std_MB"  : [individual_catch_file_size_std],
-            "individual_catch_file_zip_size_avg_MB" : [individual_catch_file_zip_size_avg],
-            "individual_catch_file_zip_size_med_MB" : [individual_catch_file_zip_size_med],
-            "individual_catch_file_zip_size_std_MB" : [individual_catch_file_zip_size_std],
-            "netcdf_catch_file_size_avg_MB"  : [netcdf_catch_file_size_avg],
-            "netcdf_catch_file_size_med_MB"  : [netcdf_catch_file_size_med],
-            "netcdf_catch_file_size_std_MB"  : [netcdf_catch_file_size_std]
-        }
+        if data_source == "forcings":
+            metadata = {
+                "runtime_s"               : [round(runtime,2)],
+                "nvars_intput"            : [len(nwm_variables)],
+                "nwmfiles_input"          : [len(nwm_forcing_files)],
+                "nwm_file_size_avg_MB"    : [nwm_file_size_avg],
+                "nwm_file_size_med_MB"    : [nwm_file_size_med],
+                "nwm_file_size_std_MB"    : [nwm_file_size_std],
+                "catch_files_output"      : [nfiles],
+                "nvars_output"            : [len(ngen_variables)],
+                "individual_catch_file_size_avg_MB"  : [individual_catch_file_size_avg],
+                "individual_catch_file_size_med_MB"  : [individual_catch_file_size_med],
+                "individual_catch_file_size_std_MB"  : [individual_catch_file_size_std],
+                "individual_catch_file_zip_size_avg_MB" : [individual_catch_file_zip_size_avg],
+                "individual_catch_file_zip_size_med_MB" : [individual_catch_file_zip_size_med],
+                "individual_catch_file_zip_size_std_MB" : [individual_catch_file_zip_size_std],
+                "netcdf_catch_file_size_avg_MB"  : [netcdf_catch_file_size_avg],
+                "netcdf_catch_file_size_med_MB"  : [netcdf_catch_file_size_med],
+                "netcdf_catch_file_size_std_MB"  : [netcdf_catch_file_size_std]
+            }
+        else:
+            metadata = {
+                "runtime_s"               : [round(runtime,2)],
+                "nvars_intput"            : [1],
+                "nwmfiles_input"          : [len(nwm_forcing_files)],
+                "nwm_file_size_avg_MB"    : [nwm_file_size_avg],
+                "nwm_file_size_med_MB"    : [nwm_file_size_med],
+                "nwm_file_size_std_MB"    : [nwm_file_size_std],
+                "catch_files_output"      : [nfiles],
+                "nvars_output"            : [1],
+                "individual_catch_file_size_avg_MB"  : [individual_catch_file_size_avg],
+                "individual_catch_file_size_med_MB"  : [individual_catch_file_size_med],
+                "individual_catch_file_size_std_MB"  : [individual_catch_file_size_std],
+                "individual_catch_file_zip_size_avg_MB" : [individual_catch_file_zip_size_avg],
+                "individual_catch_file_zip_size_med_MB" : [individual_catch_file_zip_size_med],
+                "individual_catch_file_zip_size_std_MB" : [individual_catch_file_zip_size_std],
+                "netcdf_catch_file_size_avg_MB"  : [netcdf_catch_file_size_avg],
+                "netcdf_catch_file_size_med_MB"  : [netcdf_catch_file_size_med],
+                "netcdf_catch_file_size_std_MB"  : [netcdf_catch_file_size_std]
+            }
 
-        data_avg = np.average(data_array,axis=0)
-        avg_df = pd.DataFrame(data_avg.T,columns=ngen_variables)
-        avg_df.insert(0,"catchment id",forcing_cat_ids)
+        if data_source == "forcings":
+            data_avg = np.average(data_array,axis=0)
+            avg_df = pd.DataFrame(data_avg.T,columns=ngen_variables)
+            avg_df.insert(0,"catchment id",forcing_cat_ids)
 
-        data_med = np.median(data_array,axis=0)
-        med_df = pd.DataFrame(data_med.T,columns=ngen_variables)
-        med_df.insert(0,"catchment id",forcing_cat_ids)
+            data_med = np.median(data_array,axis=0)
+            med_df = pd.DataFrame(data_med.T,columns=ngen_variables)
+            med_df.insert(0,"catchment id",forcing_cat_ids)
+        else:
+            data_avg = np.average(data_array[:,:,1],axis=0)
+            avg_df = pd.DataFrame(data_avg.T, columns=['q_lateral'])
+            avg_df.insert(0,"nexus id",list(nwm_ngen_map.keys()))
+
+            data_med = np.median(data_array[:,:,1],axis=0)
+            med_df = pd.DataFrame(data_med.T,columns=['q_lateral'])
+            med_df.insert(0,"nexus id",list(nwm_ngen_map.keys()))
 
         del data_array
 

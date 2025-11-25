@@ -119,7 +119,7 @@ def channelrouting_nwm2ngen(nwm_files: list,
         report_usage()
 
     if ii_verbose_arg:
-        print(f'Process #{id} completed data extraction, returning data to primary process',
+        print(f'Process #{pid} completed data extraction, returning data to primary process',
               flush=True)
     return [data_list, t_list, nwm_file_sizes_MB]
 
@@ -134,7 +134,7 @@ def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: 
         times (list): list representing time axis.
         name (str): string for the filename
     Returns:
-        netcdf_cat_file_size (int): file size of output netcdf
+        netcdf_cat_file_size (list): file size of output netcdf
     """
     if storage_type == 's3':
         s3_client = boto3.session.Session().client("s3")
@@ -167,4 +167,4 @@ def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: 
         ds.to_netcdf(nc_filename)
         print(f'netcdf has been written to {nc_filename}')
         netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
-    return netcdf_cat_file_size
+    return [netcdf_cat_file_size]
