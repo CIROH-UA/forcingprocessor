@@ -84,7 +84,7 @@ def channelrouting_nwm2ngen(nwm_files: list,
             if "retrospective" in nwm_file:
                 data_allnwm = dict(zip(subset['feature_id'].values,subset['q_lateral'].values))
                 t = datetime.strftime(datetime.strptime(
-                    nwm_file.split('/')[-1].split('.')[0],'%Y%m%d%H'),'%Y-%m-%d %H:%M:%S')
+                    nwm_file.split('/')[-1].split('.')[0],'%Y%m%d%H%M'),'%Y-%m-%d %H:%M:%S')
             else:
                 # q_lateral is calculated by adding these three together
                 subset['q_lateral'] = (subset['qSfcLatRunoff'] + subset['qBucket'] +

@@ -6,4 +6,4 @@ tests/__pycache__/
 tests/data/
 tests/*.txt
 docs/examples/*/forcings
-*profile_fp.txt
+*.txt

@@ -472,7 +472,11 @@ def write_data_df(
             df.insert(0,"time",t_ax)
         else:
             df_data = data[:,j,:]
-            df = pd.DataFrame(df_data, columns=["feature_id", "q_lateral"])
+            try:
+                df = pd.DataFrame(df_data, columns=["feature_id", "q_lateral"])
+            except:
+                print("data source", data_source_arg)
+                raise
             df = df[["q_lateral"]]
             df['time'] = t_ax
             df = df[['time', 'q_lateral']] #reorder cols to maintain parity
@@ -640,7 +644,6 @@ def write_netcdf(data:np.ndarray, t_ax:list, catchments:list, prefix:str, filena
     Returns:
         None
     """
-
     if storage_type == 's3':
         s3_client = boto3.session.Session().client("s3")
         nc_filename = prefix + "/" + filename
@@ -696,7 +699,6 @@ def multiprocess_write_netcdf(data:np.ndarray, jcatchment_dict:dict, t_ax:np.nda
         i=k
 
     njobs = len(jcatchment_dict)
-
     netcdf_cat_file_sizes = []
     with cf.ProcessPoolExecutor(max_workers=min(njobs,nprocs)) as pool:
         for results in pool.map(
@@ -775,7 +777,7 @@ def prep_ngen_data(conf):
     if type(gpkg_file) is not list: gpkg_files = [gpkg_file]
     else: gpkg_files = gpkg_file
 
-    if ".json" in gpkg_file[0]: # NWM to NGEN channel routing processing requires json map
+    if "map.json" in gpkg_files[0]: # NWM to NGEN channel routing processing requires json map
         data_source = "channel_routing"
     else:
         data_source = "forcings"
@@ -862,7 +864,7 @@ def prep_ngen_data(conf):
         tw = time.perf_counter()
         if ii_verbose:
             print('Reading NWM to NGEN map\n', flush=True)
-        with open(gpkg_file[0], "r", encoding="utf-8") as map_file:
+        with open(gpkg_files[0], "r", encoding="utf-8") as map_file:
             nwm_ngen_map = json.load(map_file)
         ncatchments = len(nwm_ngen_map)
         log_time("READMAP_END", log_file)
@@ -921,7 +923,7 @@ def prep_ngen_data(conf):
     if data_source == "forcings":
         pattern = r"nwm\.(\d{8})/forcing_(\w+)/nwm\.(\w+)(\d{2})z\.\w+\.forcing\.(\w+)(\d{2})\.conus\.nc"
     else:
-        pattern = r"nwm\.(\d{8})/(\w+)/nwm\.(\w+)(\d{2})z\.\w+\.channel_rt\.(\w+)(\d{2})\.conus\.nc"
+        pattern = r"nwm\.(\d{8})/(\w+)/nwm\.(\w+)(\d{2})z\.\w+\.channel_rt[^\.]*\.(\w+)(\d{2})\.conus\.nc"
 
     # Extract forecast cycle and lead time from the first and last file names
     global URLBASE, FCST_CYCLE, LEAD_START, LEAD_END
