@@ -233,8 +233,17 @@ def test_retro_3_0(download_weight_file,clean_forcings_metadata_dirs):
     assert assert_file.exists()
     os.remove(assert_file)
 
-# reordered so that the s3 test runs last, this way we can test the output types without having it
-# push to s3
+def test_s3_output(download_weight_file,clean_forcings_metadata_dirs,clean_s3_test):
+    test_bucket = "ciroh-community-ngen-datastream"
+    if 'plot' in conf.keys():
+        conf.pop('plot')
+    conf['forcing']['nwm_file'] = RETRO_FILENAMELIST
+    conf['storage']['output_path'] = f's3://{test_bucket}/test/pytest_fp'
+    conf['storage']['output_file_type'] = ["netcdf"]
+    nwmurl_conf_retro["urlbaseinput"] = 4
+    generate_nwmfiles(nwmurl_conf_retro)
+    prep_ngen_data(conf)
+    conf['storage']['output_path'] = str(data_dir)
 
 def test_csv_output_type(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf['start_date'] = TODAY_START
@@ -272,16 +281,4 @@ def test_netcdf_output_type(download_weight_file,clean_forcings_metadata_dirs):
     assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
-
-def test_s3_output(download_weight_file,clean_forcings_metadata_dirs,clean_s3_test):
-    test_bucket = "ciroh-community-ngen-datastream"
-    if 'plot' in conf.keys():
-        conf.pop('plot')
-    conf['forcing']['nwm_file'] = RETRO_FILENAMELIST
-    conf['storage']['output_path'] = f's3://{test_bucket}/test/pytest_fp'
-    conf['storage']['output_file_type'] = ["netcdf"]
-    nwmurl_conf_retro["urlbaseinput"] = 4
-    generate_nwmfiles(nwmurl_conf_retro)
-    prep_ngen_data(conf)
-    conf['storage']['output_path'] = str(data_dir)
 
