@@ -210,7 +210,7 @@ def test_retro_2_1_https(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf_retro["urlbaseinput"] = 1
     generate_nwmfiles(nwmurl_conf_retro)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/VPU_09_forcings.nc").resolve()
+    assert_file=(data_dir/"forcings/qlaterals.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 

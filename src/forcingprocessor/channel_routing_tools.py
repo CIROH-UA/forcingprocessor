@@ -164,7 +164,7 @@ def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: 
         s3_client.upload_file(nc_filename, bucket, key)
         os.remove(nc_filename)
     else:
-        ds.to_netcdf(nc_filename)
+        ds.to_netcdf(nc_filename, engine="netcdf4")
         print(f'netcdf has been written to {nc_filename}')
         netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
     return [netcdf_cat_file_size]
