@@ -13,7 +13,8 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 import boto3
-from forcingprocessor.utils import convert_url2key, report_usage
+import tempfile
+from forcingprocessor.utils import convert_url2key, report_usage, make_forcing_netcdf
 
 B2MB = 1048576
 
@@ -155,14 +156,15 @@ def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: 
         "feature_id": feature_ids
         }
     )
-
     if storage_type == 's3':
         bucket, key = convert_url2key(nc_filename,'s3')
-        ds.to_netcdf(nc_filename)
-        netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
-        print(f"Uploading netcdf forcings to S3: bucket={bucket}, key={key}")
-        s3_client.upload_file(nc_filename, bucket, key)
-        os.remove(nc_filename)
+        with tempfile.NamedTemporaryFile(suffix='.nc') as tmpfile:
+            ds.to_netcdf(tmpfile.name, engine="netcdf4")
+            netcdf_cat_file_size = os.path.getsize(tmpfile.name) / B2MB
+            tmpfile.flush()
+            tmpfile.seek(0)
+            print(f"Uploading netcdf forcings to S3: bucket={bucket}, key={key}")
+            s3_client.upload_file(tmpfile.name, bucket, key)
     else:
         ds.to_netcdf(nc_filename, engine="netcdf4")
         print(f'netcdf has been written to {nc_filename}')
