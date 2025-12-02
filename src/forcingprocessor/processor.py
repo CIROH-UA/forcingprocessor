@@ -14,6 +14,7 @@ import concurrent.futures as cf
 from datetime import datetime
 import gzip
 import tarfile, tempfile
+import s3fs
 from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
@@ -864,8 +865,13 @@ def prep_ngen_data(conf):
         tw = time.perf_counter()
         if ii_verbose:
             print('Reading NWM to NGEN map\n', flush=True)
-        with open(gpkg_files[0], "r", encoding="utf-8") as map_file:
-            nwm_ngen_map = json.load(map_file)
+        if "s3://" in gpkg_files[0]:
+            s3 = s3fs.S3FileSystem(anon=True)
+            with s3.open(gpkg_files[0], "r") as map_file:
+                nwm_ngen_map = json.load(map_file)
+        else:
+            with open(gpkg_files[0], "r", encoding="utf-8") as map_file:
+                nwm_ngen_map = json.load(map_file)
         ncatchments = len(nwm_ngen_map)
         log_time("READMAP_END", log_file)
 
