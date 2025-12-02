@@ -77,7 +77,7 @@ def channelrouting_nwm2ngen(nwm_files: list,
 
         topen += time.perf_counter() - t0
         t0 = time.perf_counter()
-        with xr.open_dataset(file_obj) as nwm_data:
+        with xr.open_dataset(file_obj,chunks={}) as nwm_data:
             txrds += time.perf_counter() - t0
             t0 = time.perf_counter()
             data_allnwm = {}
@@ -85,7 +85,8 @@ def channelrouting_nwm2ngen(nwm_files: list,
                 subset = nwm_data.sel(feature_id=nwm_cats)
                 valid_nwm_cats = nwm_cats
             except KeyError:
-                print(f"Some NWM IDs from the mapping are not present in {nwm_file}.",
+                print(f"Some NWM IDs from the mapping are not present in {nwm_file}. Only " +
+                      "processing available IDs.",
                       flush=True)
                 feature_ids_in_file = set(nwm_data['feature_id'].values)
                 valid_nwm_cats = feature_ids_in_file.intersection(nwm_cats)
@@ -107,15 +108,11 @@ def channelrouting_nwm2ngen(nwm_files: list,
 
         t0 = time.perf_counter()
         data_allngen = {}
+        valid_nwm_set = set(valid_nwm_cats)
         for ngen_nex, nwm_ids in mapping_arg.items():
-            temp_array = []
-            for nwm_id in nwm_ids:
-                if nwm_id in set(valid_nwm_cats):
-                    temp_array.append(data_allnwm[nwm_id])
-                else:
-                    temp_array.append(0.0)
-
-            data_allngen[ngen_nex] = sum(temp_array)
+            data_allngen[ngen_nex] = sum(
+                data_allnwm[nwm_id] for nwm_id in nwm_ids if nwm_id in valid_nwm_set
+            )
         data_array = np.array(list(data_allngen.items()))
 
         data_list.append(data_array)
