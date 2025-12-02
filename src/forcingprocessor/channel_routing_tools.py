@@ -13,6 +13,7 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 import boto3
+import traceback
 import tempfile
 from forcingprocessor.utils import convert_url2key, report_usage, make_forcing_netcdf
 
@@ -46,7 +47,6 @@ def channelrouting_nwm2ngen(nwm_files: list,
     t_list = []
     nfiles = len(nwm_files)
     nwm_cats = list(itertools.chain.from_iterable(list(mapping_arg.values())))
-    print(nwm_cats, flush=True)
     if fs_type_arg == 'google' :
         fs_arg = gcsfs.GCSFileSystem()
     pid = os.getpid()
@@ -81,7 +81,15 @@ def channelrouting_nwm2ngen(nwm_files: list,
             txrds += time.perf_counter() - t0
             t0 = time.perf_counter()
             data_allnwm = {}
-            subset = nwm_data.sel(feature_id=nwm_cats)
+            try:
+                subset = nwm_data.sel(feature_id=nwm_cats)
+                valid_nwm_cats = nwm_cats
+            except KeyError:
+                print(f"Some NWM IDs from the mapping are not present in {nwm_file}.",
+                      flush=True)
+                feature_ids_in_file = set(nwm_data['feature_id'].values)
+                valid_nwm_cats = feature_ids_in_file.intersection(nwm_cats)
+                subset = nwm_data.sel(feature_id=list(valid_nwm_cats))
             if "retrospective" in nwm_file:
                 data_allnwm = dict(zip(subset['feature_id'].values,subset['q_lateral'].values))
                 t = datetime.strftime(datetime.strptime(
@@ -102,7 +110,10 @@ def channelrouting_nwm2ngen(nwm_files: list,
         for ngen_nex, nwm_ids in mapping_arg.items():
             temp_array = []
             for nwm_id in nwm_ids:
-                temp_array.append(data_allnwm[nwm_id])
+                if nwm_id in set(valid_nwm_cats):
+                    temp_array.append(data_allnwm[nwm_id])
+                else:
+                    temp_array.append(0.0)
 
             data_allngen[ngen_nex] = sum(temp_array)
         data_array = np.array(list(data_allngen.items()))

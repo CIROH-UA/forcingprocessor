@@ -1,7 +1,7 @@
 {
     "forcing"  : {
         "nwm_file"   : "filenamelist.txt",
-        "gpkg_file"  : ["hf2.2_subset_map.json"]
+        "gpkg_file"  : ["s3://ciroh-community-ngen-datastream/mappings/nwm_to_ngen_map.json"]
     },
 
     "storage":{
