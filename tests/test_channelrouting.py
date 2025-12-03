@@ -279,7 +279,7 @@ def test_netcdf_output_type(download_weight_file,clean_forcings_metadata_dirs):
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["netcdf"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
