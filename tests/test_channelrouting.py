@@ -28,7 +28,8 @@ RETRO_FILENAMELIST = str((pwd/"retro_filenamelist.txt").resolve())
 conf = {
     "forcing"  : {
         "nwm_file"   : FILENAMELIST,
-        "gpkg_file"  : [f"{pwd}/docs/examples/routing-only_example/hf2.2_subset_map.json"]
+        "gpkg_file"  : [f"{pwd}/docs/examples/routing-only_example/cat-1555522_subset.gpkg"],
+        "map_file"   : "s3://ciroh-community-ngen-datastream/mappings/nwm_to_ngen_map.json"
     },
 
     "storage":{
@@ -254,7 +255,7 @@ def test_csv_output_type(download_weight_file,clean_forcings_metadata_dirs):
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["csv"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/tnx-1000000125.csv").resolve()
+    assert_file=(data_dir/"forcings/nex-1555523.csv").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -262,7 +263,7 @@ def test_parquet_output_type(download_weight_file,clean_forcings_metadata_dirs):
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["parquet"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/tnx-1000000125.parquet").resolve()
+    assert_file=(data_dir/"forcings/nex-1555523.parquet").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -278,7 +279,7 @@ def test_netcdf_output_type(download_weight_file,clean_forcings_metadata_dirs):
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["netcdf"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"qlaterals.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 

@@ -1,13 +1,16 @@
 {
     "forcing"  : {
         "nwm_file"   : "filenamelist.txt",
-        "gpkg_file"  : ["s3://ciroh-community-ngen-datastream/mappings/nwm_to_ngen_map.json"]
+        "gpkg_file" : [
+            "./cat-1555522_subset.gpkg"
+        ],
+        "map_file"  : "s3://ciroh-community-ngen-datastream/mappings/nwm_to_ngen_map.json"
     },
 
     "storage":{
         "storage_type"      : "local",
         "output_path"       : "./forcings",
-        "output_file_type" : ["netcdf"]
+        "output_file_type" : ["netcdf", "csv"]
     },
 
     "run" : {

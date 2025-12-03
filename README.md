@@ -68,7 +68,8 @@ where the list of `nwm-id`s are the NHD reaches associated with that NextGen hyd
 | Field             | Description              | Required |
 |-------------------|--------------------------|----------|
 | nwm_file          | Path to a text file containing nwm file names. One filename per line. [Tool](#nwm_file) to create this file | :white_check_mark: |
-| gpkg_file       | Geopackage file to define spatial domain. Use [hfsubset](https://github.com/lynker-spatial/hfsubsetCLI) to generate a geopackage with a `forcing-weights` layer. Accepts local absolute path, s3 URI or URL. Also acceptable is a weights parquet generated with [weights_hf2ds.py](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/weights_hf2ds.py), though the plotting option will no longer be available. The path to the NWM to NGEN mapping (with filename ending in `map.json`) for channel routing data extraction also goes here. |  :white_check_mark: |
+| gpkg_file       | Geopackage file to define spatial domain. Use [hfsubset](https://github.com/lynker-spatial/hfsubsetCLI) to generate a geopackage with a `forcing-weights` layer. Accepts local absolute path, s3 URI or URL. Also acceptable is a weights parquet generated with [weights_hf2ds.py](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/weights_hf2ds.py), though the plotting option will no longer be available. |  :white_check_mark: |
+| map_file          | Path to a json containing the NWM to NGEN mapping for channel routing data extraction. Absolute path or s3 URI |  |
 
 ### 2. Storage
 

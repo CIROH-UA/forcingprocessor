@@ -15,6 +15,7 @@ from datetime import datetime
 import gzip
 import tarfile, tempfile
 import s3fs
+import geopandas as gpd
 from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
@@ -778,8 +779,17 @@ def prep_ngen_data(conf):
     if type(gpkg_file) is not list: gpkg_files = [gpkg_file]
     else: gpkg_files = gpkg_file
 
-    if "map.json" in gpkg_files[0]: # NWM to NGEN channel routing processing requires json map
+    map_file_path = conf['forcing'].get("map_file",None)
+    if map_file_path: # NWM to NGEN channel routing processing requires json map
         data_source = "channel_routing"
+        if "s3://" in map_file_path:
+            s3 = s3fs.S3FileSystem(anon=True)
+            with s3.open(map_file_path, "r") as map_file:
+                full_nwm_ngen_map = json.load(map_file)
+        else:
+            with open(map_file_path, "r", encoding="utf-8") as map_file:
+                full_nwm_ngen_map = json.load(map_file)
+
     else:
         data_source = "forcings"
 
@@ -865,13 +875,11 @@ def prep_ngen_data(conf):
         tw = time.perf_counter()
         if ii_verbose:
             print('Reading NWM to NGEN map\n', flush=True)
-        if "s3://" in gpkg_files[0]:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(gpkg_files[0], "r") as map_file:
-                nwm_ngen_map = json.load(map_file)
-        else:
-            with open(gpkg_files[0], "r", encoding="utf-8") as map_file:
-                nwm_ngen_map = json.load(map_file)
+        gpkg = gpd.read_file(gpkg_files[0], layer='nexus')
+        catchments = gpkg['id'].to_list()
+        nwm_ngen_map = {}
+        for jcatch in catchments:
+            nwm_ngen_map[jcatch] = full_nwm_ngen_map[jcatch]
         ncatchments = len(nwm_ngen_map)
         log_time("READMAP_END", log_file)
 

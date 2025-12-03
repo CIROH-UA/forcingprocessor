@@ -2,7 +2,7 @@
     "forcing": {
         "nwm_file": "filenamelist.txt",
         "gpkg_file": [
-            "/Users/qylee/ngiab_preprocess_output/cat-1023669/config/cat-1023669_subset.gpkg"
+            "./cat-1555522_subset.gpkg"
         ]
     },
     "storage": {
