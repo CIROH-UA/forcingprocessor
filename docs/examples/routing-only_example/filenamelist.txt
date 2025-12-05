@@ -1,0 +1,3 @@
+https://noaa-nwm-pds.s3.amazonaws.com/nwm.20250718/short_range/nwm.t00z.short_range.channel_rt.f001.conus.nc
+https://noaa-nwm-pds.s3.amazonaws.com/nwm.20250718/short_range/nwm.t01z.short_range.channel_rt.f001.conus.nc
+https://noaa-nwm-pds.s3.amazonaws.com/nwm.20250718/short_range/nwm.t02z.short_range.channel_rt.f001.conus.nc

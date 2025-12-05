@@ -1,0 +1,22 @@
+{
+    "forcing": {
+        "nwm_file": "filenamelist.txt",
+        "gpkg_file": [
+            "./cat-1555522_subset.gpkg"
+        ]
+    },
+    "storage": {
+        "storage_type": "local",
+        "output_path": "./forcings",
+        "output_file_type": [
+            "netcdf"
+        ]
+    },
+    "run": {
+        "verbose": true,
+        "collect_stats": true
+    },
+    "plot": {
+        "nts": 3
+    }
+}
