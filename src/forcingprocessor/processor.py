@@ -1167,9 +1167,9 @@ def prep_ngen_data(conf):
         else:
             local_metapath = metaf_path
 
-        write_df(metadata_df, "metadata.csv", storage_type, local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
-        write_df(avg_df, "catchments_avg.csv", storage_type, local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
-        write_df(med_df, "catchments_median.csv", storage_type, local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
+        write_df(metadata_df, "metadata.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
+        write_df(avg_df, "catchments_avg.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
+        write_df(med_df, "catchments_median.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
 
         meta_time = time.perf_counter() - t000
         log_time("METADATA_END", log_file)
