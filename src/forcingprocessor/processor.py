@@ -734,23 +734,23 @@ def write_df(df:pd.DataFrame, filename:str, storage_type:str, client:boto3.clien
     if ext == ".csv":
         if storage_type == 's3':
             buf = BytesIO()
-            df.to_csv(buf, index=False)
+            df.to_csv(buf, header=False)
             key_name = f"{key_prefix}/{filename}"
             client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
             buf.close()
         else:
             out_path = Path(local_path, filename)
-            df.to_csv(out_path, index=False)
+            df.to_csv(out_path, header=False)
     elif ext == ".parquet":
         if storage_type == 's3':
             buf = BytesIO()
-            df.to_parquet(buf, index=False)
+            df.to_parquet(buf, header=False)
             key_name = f"{key_prefix}/{filename}"
             client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
             buf.close()
         else:
             out_path = Path(local_path, filename)
-            df.to_parquet(out_path, index=False)
+            df.to_parquet(out_path, header=False)
     else:
         raise ValueError("Only CSV and Parquet output is supported by write_df")
 
@@ -879,7 +879,8 @@ def prep_ngen_data(conf):
         catchments = gpkg['id'].to_list()
         nwm_ngen_map = {}
         for jcatch in catchments:
-            nwm_ngen_map[jcatch] = full_nwm_ngen_map[jcatch]
+            if "tnx" not in jcatch and "cnx" not in jcatch and "inx" not in jcatch:
+                nwm_ngen_map[jcatch] = full_nwm_ngen_map[jcatch]
         ncatchments = len(nwm_ngen_map)
         log_time("READMAP_END", log_file)
 
