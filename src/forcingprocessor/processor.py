@@ -499,7 +499,7 @@ def write_data_df(
             if j ==0:
                 if ii_verbose: print(f'{id} writing {nfiles} dataframes to {output_file_type}', end=None, flush =True)
             kwargs = {"s3": s3_client, "bucket": bucket, "key_prefix": key_prefix} if storage_type == "s3" else {"local_path": out_path}
-            write_df(df, filename, storage_type, **kwargs)
+            write_df(df, filename, storage_type, data_source_arg, **kwargs)
         else:
             if data_source_arg == "forcings":
                 filename = f"./cat-{cat_id}.csv"
@@ -716,7 +716,8 @@ def multiprocess_write_netcdf(data:np.ndarray, jcatchment_dict:dict, t_ax:np.nda
 
     return netcdf_cat_file_sizes
 
-def write_df(df:pd.DataFrame, filename:str, storage_type:str, client:boto3.client=None, bucket:str=None, key_prefix:str=None, local_path:str=None):
+def write_df(df:pd.DataFrame, filename:str, storage_type:str, data_source_arg:str,
+             client:boto3.client=None, bucket:str=None, key_prefix:str=None, local_path:str=None):
     """
     Write a DataFrame to S3 or local storage as a CSV or Parquet file.
     The file type is inferred from the filename extension.
@@ -725,6 +726,7 @@ def write_df(df:pd.DataFrame, filename:str, storage_type:str, client:boto3.clien
         df (pd.DataFrame): DataFrame to write.
         filename (str): Name of the file (e.g., 'metadata.csv' or 'metadata.parquet').
         storage_type (str): 's3' or 'local'.
+        data_source_arg (str): 'channel_routing' or 'forcings'.
         client (boto3.client, optional): S3 client if using S3.
         bucket (str, optional): S3 bucket name.
         key_prefix (str, optional): S3 key prefix (folder path).
@@ -734,13 +736,21 @@ def write_df(df:pd.DataFrame, filename:str, storage_type:str, client:boto3.clien
     if ext == ".csv":
         if storage_type == 's3':
             buf = BytesIO()
-            df.to_csv(buf, header=False)
+            if data_source_arg == "channel_routing":
+                df.to_csv(buf, header=False) # t-route input format
+            else:
+                df.to_csv(buf, index=False)
+
+
             key_name = f"{key_prefix}/{filename}"
             client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
             buf.close()
         else:
             out_path = Path(local_path, filename)
-            df.to_csv(out_path, header=False)
+            if data_source_arg == "channel_routing":
+                df.to_csv(out_path, header=False)
+            else:
+                df.to_csv(out_path, index=False)
     elif ext == ".parquet":
         if storage_type == 's3':
             buf = BytesIO()
