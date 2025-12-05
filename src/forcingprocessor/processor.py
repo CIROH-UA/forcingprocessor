@@ -744,13 +744,13 @@ def write_df(df:pd.DataFrame, filename:str, storage_type:str, client:boto3.clien
     elif ext == ".parquet":
         if storage_type == 's3':
             buf = BytesIO()
-            df.to_parquet(buf, header=False)
+            df.to_parquet(buf)
             key_name = f"{key_prefix}/{filename}"
             client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
             buf.close()
         else:
             out_path = Path(local_path, filename)
-            df.to_parquet(out_path, header=False)
+            df.to_parquet(out_path)
     else:
         raise ValueError("Only CSV and Parquet output is supported by write_df")
 
