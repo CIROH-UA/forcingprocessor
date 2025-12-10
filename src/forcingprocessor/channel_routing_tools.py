@@ -96,9 +96,8 @@ def channelrouting_nwm2ngen(nwm_files: list,
                 t = datetime.strftime(datetime.strptime(
                     nwm_file.split('/')[-1].split('.')[0],'%Y%m%d%H%M'),'%Y-%m-%d %H:%M:%S')
             else:
-                # q_lateral is calculated by adding these three together
-                subset['q_lateral'] = (subset['qSfcLatRunoff'] + subset['qBucket'] +
-                                         subset['qBtmVertRunoff'])
+                # q_lateral is calculated by adding these two together
+                subset['q_lateral'] = subset['qSfcLatRunoff'] + subset['qBucket']
                 data_allnwm = dict(zip(subset['feature_id'].values,subset['q_lateral'].values))
                 time_splt = subset.attrs["model_output_valid_time"].split("_")
                 t = time_splt[0] + " " + time_splt[1]
