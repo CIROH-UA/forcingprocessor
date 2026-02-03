@@ -7,6 +7,16 @@ on:
         required: false
         default: ''
         type: string
+      force_build_deps:
+        description: 'Force build forcingprocessor-deps (provide tag version, e.g., 1.0.0)'
+        required: false
+        default: ''
+        type: string
+      force_build_fp:
+        description: 'Force build forcingprocessor (provide tag version, e.g., 1.0.0)'
+        required: false
+        default: ''
+        type: string
   push:
     branches:
       - main
@@ -46,11 +56,42 @@ jobs:
       shell: bash
       run: |
         set -euo pipefail
-    
+
+        # Check for manual trigger with forced builds
+        FORCE_DEPS="${{ inputs.force_build_deps }}"
+        FORCE_FP="${{ inputs.force_build_fp }}"
+
+        if [ -n "$FORCE_DEPS" ] || [ -n "$FORCE_FP" ]; then
+          echo "Manual trigger with forced build detected"
+
+          if [ -n "$FORCE_DEPS" ]; then
+            echo "Force building forcingprocessor-deps with tag: $FORCE_DEPS"
+            echo "build_deps=true" >> "$GITHUB_OUTPUT"
+            echo "deps_version=$FORCE_DEPS" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_deps=false" >> "$GITHUB_OUTPUT"
+            CURRENT_DEPS=$(yq -r e '."forcingprocessor-deps"' versions.yml)
+            echo "deps_version=$CURRENT_DEPS" >> "$GITHUB_OUTPUT"
+          fi
+
+          if [ -n "$FORCE_FP" ]; then
+            echo "Force building forcingprocessor with tag: $FORCE_FP"
+            echo "build_fp=true" >> "$GITHUB_OUTPUT"
+            echo "fp_version=$FORCE_FP" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_fp=false" >> "$GITHUB_OUTPUT"
+            CURRENT_FP=$(yq -r e '.forcingprocessor' versions.yml)
+            echo "fp_version=$CURRENT_FP" >> "$GITHUB_OUTPUT"
+          fi
+
+          exit 0
+        fi
+
+        # Normal version change detection for push/PR events
         # Current versions (raw)
         CURRENT_DEPS=$(yq -r e '."forcingprocessor-deps"' versions.yml)
         CURRENT_FP=$(yq -r e '.forcingprocessor' versions.yml)
-    
+
         # Ensure previous commit and file exist
         if git rev-parse HEAD~1 >/dev/null 2>&1 && git cat-file -e HEAD~1:versions.yml 2>/dev/null; then
           git show HEAD~1:versions.yml > previous_versions.yml
@@ -60,7 +101,7 @@ jobs:
 
         PREVIOUS_DEPS=$(yq -r e '."forcingprocessor-deps"' previous_versions.yml)
         PREVIOUS_FP=$(yq -r e '.forcingprocessor' previous_versions.yml)
-    
+
         # Check what changed and set outputs
         if [ "$CURRENT_DEPS" != "$PREVIOUS_DEPS" ]; then
           echo "forcingprocessor-deps changed: $PREVIOUS_DEPS -> $CURRENT_DEPS"
@@ -69,7 +110,7 @@ jobs:
           echo "build_deps=false" >> "$GITHUB_OUTPUT"
         fi
         echo "deps_version=$CURRENT_DEPS" >> "$GITHUB_OUTPUT"
-    
+
         if [ "$CURRENT_FP" != "$PREVIOUS_FP" ]; then
           echo "forcingprocessor changed: $PREVIOUS_FP -> $CURRENT_FP"
           echo "build_fp=true" >> "$GITHUB_OUTPUT"
@@ -141,14 +182,14 @@ jobs:
         retention-days: 10
 
     - name: Login to Docker Hub
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.force_build_deps != '' || inputs.force_build_fp != ''))
       uses: docker/login-action@v3
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
 
     - name: Push docker containers
-      if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      if: (github.event_name == 'push' && github.ref == 'refs/heads/main') || (github.event_name == 'workflow_dispatch' && (inputs.force_build_deps != '' || inputs.force_build_fp != ''))
       run: |
         if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
           VERSION_TAG="${{ needs.detect-changes.outputs.deps_version }}"
@@ -356,7 +397,7 @@ jobs:
   create-manifest:
     name: Create and Push Manifest
     needs: [detect-changes, build-test-push-docker-arm]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.detect-changes.outputs.build_deps == 'true' || needs.detect-changes.outputs.build_fp == 'true')
+    if: ((github.event_name == 'push' && github.ref == 'refs/heads/main') || github.event_name == 'workflow_dispatch') && (needs.detect-changes.outputs.build_deps == 'true' || needs.detect-changes.outputs.build_fp == 'true')
     runs-on: ubuntu-latest
     steps:
       - name: Log in to Docker Hub
