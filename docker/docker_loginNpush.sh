@@ -1,8 +1,14 @@
 #!/bin/bash
 set -euo pipefail
 
-LOG_FILE="/home/ec2-user/forcingprocessor/docker_build_log.txt"
-mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || LOG_FILE="/tmp/docker_build_log.txt"
+# Use a dedicated log file for push operations to avoid permission conflicts
+LOG_FILE="/home/ec2-user/forcingprocessor/docker_push_log.txt"
+mkdir -p "$(dirname "$LOG_FILE")" 2>/dev/null || true
+
+# Ensure log file is writable, fallback to /tmp if not
+if ! touch "$LOG_FILE" 2>/dev/null; then
+    LOG_FILE="/tmp/docker_push_log.txt"
+fi
 
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"; }
 
