@@ -1162,7 +1162,7 @@ def prep_ngen_data(conf):
         if storage_type == 's3':
             bucket, key = convert_url2key(output_path,storage_type)
             meta_path = f"{key}/metadata/forcings_metadata/"
-            meta_key = meta_path + 'metadata.csv'
+            meta_key = meta_path
             meta_bucket = bucket
         else:
             local_metapath = metaf_path
