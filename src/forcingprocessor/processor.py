@@ -901,7 +901,10 @@ def prep_ngen_data(conf):
         if output_path == "":
             output_path = os.path.join(os.getcwd(),datentime)
         output_path  = Path(output_path)
-        forcing_path = Path(output_path, 'forcings')
+        if data_source == "channel_routing":
+            forcing_path = Path(output_path, 'outputs', 'ngen')
+        else:
+            forcing_path = Path(output_path, 'forcings')
         meta_path    = Path(output_path, 'metadata')
         metaf_path   = Path(output_path, 'metadata','forcings_metadata')
         if not os.path.exists(output_path):  os.system(f"mkdir {output_path}")
