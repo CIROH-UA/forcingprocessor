@@ -45,7 +45,7 @@ conf = {
     },
 
     "storage":{
-        "output_path"       : "s3://ciroh-community-ngen-datastream/test/pytest_fp/nrds_fp_test",
+        "output_path"       : "s3://ciroh-community-ngen-datastream/test/cicd/forcingprocessor/pytest/nrds_fp_test",
         "output_file_type"  : ["netcdf"]
     },    
 
@@ -92,7 +92,7 @@ def test_nrds_fp(clean_s3_nrds_test, download_weights):
     prep_ngen_data(conf)
 
     for vpu in vpus:
-        url = f"s3://ciroh-community-ngen-datastream/test/pytest_fp/nrds_fp_test/ngen.t01z.short_range.forcing.f001_f018.VPU_{vpu}.nc"
+        url = f"s3://ciroh-community-ngen-datastream/test/cicd/forcingprocessor/pytest/nrds_fp_test/ngen.t01z.short_range.forcing.f001_f018.VPU_{vpu}.nc"
         print(f"Checking for {url}")
         assert s3_object_exists(url)
 
