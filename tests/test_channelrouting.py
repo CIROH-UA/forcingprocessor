@@ -239,7 +239,7 @@ def test_s3_output(download_weight_file,clean_forcings_metadata_dirs,clean_s3_te
     if 'plot' in conf.keys():
         conf.pop('plot')
     conf['forcing']['nwm_file'] = RETRO_FILENAMELIST
-    conf['storage']['output_path'] = f's3://{test_bucket}/test/pytest_fp'
+    conf['storage']['output_path'] = f's3://{test_bucket}/test/cicd/forcingprocessor/pytest'
     conf['storage']['output_file_type'] = ["netcdf"]
     nwmurl_conf_retro["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf_retro)

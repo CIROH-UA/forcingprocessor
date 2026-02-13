@@ -12,15 +12,15 @@ local_weight_files = [str((data_dir/f"nextgen_VPU_{x}_weights.json").resolve()) 
 
 @pytest.fixture(scope="session")
 def clean_s3_nrds_test():
-    os.system("aws s3 rm s3://ciroh-community-ngen-datastream/test/pytest_fp/nrds_fp_test --recursive")
+    os.system("aws s3 rm s3://ciroh-community-ngen-datastream/test/cicd/forcingprocessor/pytest/nrds_fp_test --recursive")
     yield
-    os.system("aws s3 rm s3://ciroh-community-ngen-datastream/test/pytest_fp/nrds_fp_test --recursive")
+    os.system("aws s3 rm s3://ciroh-community-ngen-datastream/test/cicd/forcingprocessor/pytest/nrds_fp_test --recursive")
 
 @pytest.fixture(scope="session")
 def clean_s3_test():
-    os.system("aws s3 rm s3://ciroh-community-ngen-datastream/test/pytest_fp --recursive") 
+    os.system("aws s3 rm s3://ciroh-community-ngen-datastream/test/cicd/forcingprocessor/pytest --recursive") 
     yield
-    os.system("aws s3 rm s3://ciroh-community-ngen-datastream/test/pytest_fp --recursive")    
+    os.system("aws s3 rm s3://ciroh-community-ngen-datastream/test/cicd/forcingprocessor/pytest --recursive")    
 
 @pytest.fixture(scope="session")
 def clean_data_dir():
