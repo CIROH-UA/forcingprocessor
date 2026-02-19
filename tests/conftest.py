@@ -7,7 +7,7 @@ data_dir = (test_dir/'data').resolve()
 forcings_dir = (data_dir/'forcings').resolve()
 metadata_dir = (data_dir/'metadata').resolve()
 geopackage_name = "vpu-09_subset.gpkg"
-weight_files = [f"https://ciroh-community-ngen-datastream.s3.amazonaws.com/v2.2_resources/weights/nextgen_VPU_{x}_weights.json" for x in vpus]
+weight_files = [f"https://ciroh-community-ngen-datastream.s3.amazonaws.com/resources/v2.2_hydrofabric/weights/nextgen_VPU_{x}_weights.json" for x in vpus]
 local_weight_files = [str((data_dir/f"nextgen_VPU_{x}_weights.json").resolve()) for x in vpus]
 
 @pytest.fixture(scope="session")
