@@ -7,7 +7,7 @@ data_dir = (test_dir/'data').resolve()
 forcings_dir = (data_dir/'forcings').resolve()
 metadata_dir = (data_dir/'metadata').resolve()
 geopackage_name = "vpu-09_subset.gpkg"
-weight_files = [f"https://ciroh-community-ngen-datastream.s3.amazonaws.com/v2.2_resources/weights/nextgen_VPU_{x}_weights.json" for x in vpus]
+weight_files = [f"https://ciroh-community-ngen-datastream.s3.amazonaws.com/resources/v2.2_hydrofabric/weights/nextgen_VPU_{x}_weights.json" for x in vpus]
 local_weight_files = [str((data_dir/f"nextgen_VPU_{x}_weights.json").resolve()) for x in vpus]
 
 @pytest.fixture(scope="session")
@@ -51,7 +51,7 @@ def download_weight_file():
     weights_name = "nextgen_VPU_09_weights.json"
     local_path = os.path.join(data_dir,weights_name)
     if not os.path.exists(local_path):
-        os.system(f"curl -o {local_path} -L -O https://ciroh-community-ngen-datastream.s3.amazonaws.com/v2.2_resources/weights/nextgen_VPU_09_weights.json")
+        os.system(f"curl -o {local_path} -L -O https://ciroh-community-ngen-datastream.s3.amazonaws.com/resources/v2.2_hydrofabric/weights/nextgen_VPU_09_weights.json")
     yield
 
 @pytest.fixture(scope="session")

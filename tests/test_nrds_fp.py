@@ -35,7 +35,7 @@ os.system(f"mkdir {data_dir}")
 pwd      = Path.cwd()
 filenamelist = str((pwd/"filenamelist.txt").resolve())
 
-weight_files = [f"https://ciroh-community-ngen-datastream.s3.amazonaws.com/v2.2_resources/weights/nextgen_VPU_{x}_weights.json" for x in vpus]
+weight_files = [f"https://ciroh-community-ngen-datastream.s3.amazonaws.com/resources/v2.2_hydrofabric/weights/nextgen_VPU_{x}_weights.json" for x in vpus]
 local_weight_files = [str((data_dir/f"nextgen_VPU_{x}_weights.json").resolve()) for x in vpus]
 
 conf = {
