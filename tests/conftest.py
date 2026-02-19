@@ -51,7 +51,7 @@ def download_weight_file():
     weights_name = "nextgen_VPU_09_weights.json"
     local_path = os.path.join(data_dir,weights_name)
     if not os.path.exists(local_path):
-        os.system(f"curl -o {local_path} -L -O https://ciroh-community-ngen-datastream.s3.amazonaws.com/v2.2_resources/weights/nextgen_VPU_09_weights.json")
+        os.system(f"curl -o {local_path} -L -O https://ciroh-community-ngen-datastream.s3.amazonaws.com/resources/v2.2_hydrofabric/weights/nextgen_VPU_09_weights.json")
     yield
 
 @pytest.fixture(scope="session")
