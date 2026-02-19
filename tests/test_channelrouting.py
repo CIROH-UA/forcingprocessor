@@ -17,7 +17,7 @@ yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
 yesterday = yesterday.strftime('%Y%m%d')
 test_dir = Path(__file__).parent
 data_dir = (test_dir/'data').resolve()
-forcings_dir = (data_dir/'forcings').resolve()
+forcings_dir = (data_dir/'outputs/ngen').resolve()
 pwd      = Path.cwd()
 if os.path.exists(data_dir):
     os.system(f"rm -rf {data_dir}")
@@ -81,7 +81,7 @@ def test_nomads_prod(download_weight_file,clean_forcings_metadata_dirs):
     conf['run']['collect_stats'] = True # test metadata generation once
     prep_ngen_data(conf)
     conf['run']['collect_stats'] = False
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -91,7 +91,7 @@ def test_nwm_google_apis(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf["urlbaseinput"] = 3
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -101,7 +101,7 @@ def test_google_cloud_storage(download_weight_file,clean_forcings_metadata_dirs)
     nwmurl_conf["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -110,7 +110,7 @@ def test_gs(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf['end_date']   = TODAY_START
     nwmurl_conf["urlbaseinput"] = 5
     generate_nwmfiles(nwmurl_conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     prep_ngen_data(conf)
     assert assert_file.exists()
     os.remove(assert_file)
@@ -121,7 +121,7 @@ def test_gcs(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf["urlbaseinput"] = 6
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -131,7 +131,7 @@ def test_noaa_nwm_pds_https(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf["urlbaseinput"] = 7
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -142,7 +142,7 @@ def test_noaa_nwm_pds_https_short_range(download_weight_file,clean_forcings_meta
     nwmurl_conf["runinput"] = 1
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -154,7 +154,7 @@ def test_noaa_nwm_pds_https_medium_range(download_weight_file,clean_forcings_met
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
     assert_file=(
-        data_dir/"forcings/ngen.t00z.medium_range_mem1.channel_routing.f001_f001.nc").resolve()
+        data_dir/"outputs/ngen/ngen.t00z.medium_range_mem1.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -166,7 +166,7 @@ def test_noaa_nwm_pds_https_analysis_assim(download_weight_file,clean_forcings_m
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
     assert_file=(
-        data_dir/"forcings/ngen.t00z.analysis_assim.channel_routing.tm01_tm01.nc").resolve()
+        data_dir/"outputs/ngen/ngen.t00z.analysis_assim.channel_routing.tm01_tm01.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -190,7 +190,7 @@ def test_noaa_nwm_pds_https_analysis_assim_extend(
         else:
             raise
     assert_file=(
-        data_dir/"forcings/ngen.t16z.analysis_assim_extend.channel_routing.tm01_tm01.nc").resolve()
+        data_dir/"outputs/ngen/ngen.t16z.analysis_assim_extend.channel_routing.tm01_tm01.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -202,7 +202,7 @@ def test_noaa_nwm_pds_s3(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf["fcst_cycle"] = [0]
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -211,7 +211,7 @@ def test_retro_2_1_https(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf_retro["urlbaseinput"] = 1
     generate_nwmfiles(nwmurl_conf_retro)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/qlaterals.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/qlaterals.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -221,7 +221,7 @@ def test_retro_2_1_s3(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf_retro["urlbaseinput"] = 2
     generate_nwmfiles(nwmurl_conf_retro)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/qlaterals.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/qlaterals.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -230,7 +230,7 @@ def test_retro_3_0(download_weight_file,clean_forcings_metadata_dirs):
     nwmurl_conf_retro["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf_retro)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/qlaterals.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/qlaterals.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -255,7 +255,7 @@ def test_csv_output_type(download_weight_file,clean_forcings_metadata_dirs):
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["csv"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/nex-1555523.csv").resolve()
+    assert_file=(data_dir/"outputs/ngen/nex-1555523.csv").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -263,7 +263,7 @@ def test_parquet_output_type(download_weight_file,clean_forcings_metadata_dirs):
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["parquet"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/nex-1555523.parquet").resolve()
+    assert_file=(data_dir/"outputs/ngen/nex-1555523.parquet").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -271,7 +271,7 @@ def test_tar_output_type(download_weight_file,clean_forcings_metadata_dirs):
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["tar"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/1_forcings.tar.gz").resolve()
+    assert_file=(data_dir/"outputs/ngen/1_forcings.tar.gz").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
@@ -279,7 +279,7 @@ def test_netcdf_output_type(download_weight_file,clean_forcings_metadata_dirs):
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["netcdf"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"forcings/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
+    assert_file=(data_dir/"outputs/ngen/ngen.t00z.short_range.channel_routing.f001_f001.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
