@@ -23,7 +23,7 @@
 "instance_parameters" :
 {
   "ImageId"            : "ami-01fc4c78425e127e6",
-  "InstanceType"       : "t4g.large",
+  "InstanceType"       : "m8g.xlarge",
   "KeyName"            : "actions_key_arm",
   "SecurityGroupIds"   : ["sg-0fcbe0c6d6faa0117"],
   "IamInstanceProfile": {
