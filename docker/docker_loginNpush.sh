@@ -58,14 +58,16 @@ push_image() {
     local image=$1 tag=$2 max_retries=3
     for i in $(seq 1 $max_retries); do
         log "Pushing $image:$tag (attempt $i/$max_retries)..."
-        if docker tag "awiciroh/$image:latest-arm64" "awiciroh/$image:$tag" && \
-           docker push "awiciroh/$image:$tag" && \
-           docker push "awiciroh/$image:latest-arm64"; then
+        if docker tag "awiciroh/$image:latest-arm64" "awiciroh/$image:$tag" >> "$LOG_FILE" 2>&1 && \
+           docker push "awiciroh/$image:$tag" >> "$LOG_FILE" 2>&1 && \
+           docker push "awiciroh/$image:latest-arm64" >> "$LOG_FILE" 2>&1; then
             log "✓ Successfully pushed $image:$tag"
             return 0
         fi
-        log "Attempt $i failed, retrying in 10s..."
-        sleep 10
+        if [ "$i" -lt "$max_retries" ]; then
+            log "Attempt $i failed, retrying in 10s..."
+            sleep 10
+        fi
     done
     log "✗ Failed to push $image:$tag after $max_retries attempts"
     return 1
