@@ -5,15 +5,22 @@ The motivation for this tool is NWM data is gridded and stored within netCDFs fo
 
 ![forcing_gif](docs/gifs/T2D_2_TMP_2maboveground_cali.gif)
 
-## Install
-From root
+## Install UV early
 ```
-pip install -e .
+    curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
+## install requirement files
 
-## Run the forcingprocessor
 ```
-python src/forcingprocessor/processor.py ./configs/conf.json
+   uv add --dev -r requirements.txt 
+```
+## make directory for output data
+```
+    mkdir -p   data/forcing
+```
+## Run the forcingprocessor with UV
+```
+uv run python src/forcingprocessor/processor.py ./configs/conf_fp.json 
 ```
 Prior to executing the processor, the user will need to obtain a geopackage file to define the spatial domain. The user will define the time domain by generating the forcing filenames for `processor.py` via `nwm_filenames_generator.py`, which is explained [here](#nwm_file). Note that `forcingprocessor` will calcuate weights if not found within the geopackage file.
 
