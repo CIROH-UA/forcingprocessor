@@ -1,12 +1,12 @@
 {
     "forcing"  : {
-        "nwm_file"   : "/home/user/data/filenamelist.txt",
-        "gpkg_file"  : ["your-geopackage.gpkg"]
+        "nwm_file"   : "./docs/examples/cfe-nom_example/filenamelist.txt",
+        "gpkg_file"  : ["./docs/examples/cfe-nom_example/cat-1555522_subset.gpkg"]
     },
 
     "storage":{
         "storage_type"      : "local",
-        "output_path"       : "/home/user/data/forcings",
+        "output_path"       : "./data/forcing/",
         "output_file_type" : ["csv","tar"]
     },    
 
