@@ -12,7 +12,7 @@ The motivation for this tool is NWM data is gridded and stored within netCDFs fo
 ## install requirement files
 
 ```
-   uv add --dev -r requirements.txt 
+   uv pip install -r requirements.txt
 ```
 ## make directory for output data
 ```
