@@ -85,3 +85,4 @@ urllib3==2.6.3
 xarray==2026.1.0
 yarl==1.22.0
 zipp==3.23.0
+pytest==9.0.2
