@@ -791,9 +791,9 @@ def prep_ngen_data(conf):
     else: gpkg_files = gpkg_file
 
     map_file_path = conf['forcing'].get("map_file",None)
-    restart_map_file_path = conf['forcings'].get("restart_map_file", None)
-    crosswalk_file_path = conf['forcings'].get("crosswalk_file", None)
-    routelink_file_path = conf['forcings'].get("routelink_file", None)
+    restart_map_file_path = conf['forcing'].get("restart_map_file", None)
+    crosswalk_file_path = conf['forcing'].get("crosswalk_file", None)
+    routelink_file_path = conf['forcing'].get("routelink_file", None)
     if map_file_path: # NWM to NGEN channel routing processing requires json map
         data_source = "channel_routing"
         if "s3://" in map_file_path:
@@ -811,7 +811,7 @@ def prep_ngen_data(conf):
             with s3.open(restart_map_file_path, "r") as map_file:
                 cat_map = json.load(map_file)
         else:
-            with open(map_file_path, "r", encoding="utf-8") as map_file:
+            with open(restart_map_file_path, "r", encoding="utf-8") as map_file:
                 cat_map = json.load(map_file)
 
         if "s3://" in crosswalk_file_path:
@@ -921,6 +921,8 @@ def prep_ngen_data(conf):
                 nwm_ngen_map[jcatch] = full_nwm_ngen_map[jcatch]
         ncatchments = len(nwm_ngen_map)
         log_time("READMAP_END", log_file)
+    else:
+        ncatchments = 1
 
     log_time("STORE_METADATA_START", log_file)
     global forcing_path
@@ -1045,12 +1047,12 @@ def prep_ngen_data(conf):
                 nwm_forcing_files,nprocs,nwm_ngen_map,fs)
 
         if datetime.strptime(t_ax[0],'%Y-%m-%d %H:%M:%S') > datetime.strptime(t_ax[-1],'%Y-%m-%d %H:%M:%S'):
-        # Hack to ensure data is always written out with time moving forward.
-        t_ax=list(reversed(t_ax))
-        data_array = np.flip(data_array,axis=0)
-        tmp = LEAD_START
-        LEAD_START = LEAD_END
-        LEAD_END = tmp
+            # Hack to ensure data is always written out with time moving forward.
+            t_ax=list(reversed(t_ax))
+            data_array = np.flip(data_array,axis=0)
+            tmp = LEAD_START
+            LEAD_START = LEAD_END
+            LEAD_END = tmp
 
         t_extract = time.perf_counter() - t0
         complexity = (nfiles * ncatchments) / 10000
@@ -1062,6 +1064,8 @@ def prep_ngen_data(conf):
         nwm_file_sizes_MB = []
         if fs_type == 'google':
             fs_arg = gcsfs.GCSFileSystem()
+        else:
+            fs_arg = None
         if fs_arg:
             if nwm_file.find('https://') >= 0:
                 _, bucket_key = convert_url2key(nwm_file,fs_type)
@@ -1099,7 +1103,7 @@ def prep_ngen_data(conf):
             netcdf_cat_file_sizes_MB = write_netcdf_chrt(
                 storage_type, forcing_path, data_array, t_ax, filename)
         else:
-            filename = "channel_restart" + restart_date + "_" + restart_hour + "0000.nc"
+            filename = "channel_restart_" + restart_date + "_" + restart_hour + "0000.nc"
             data_array.to_netcdf(filename)
             netcdf_cat_file_sizes_MB = [os.path.getsize(filename) / B2MB]
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])

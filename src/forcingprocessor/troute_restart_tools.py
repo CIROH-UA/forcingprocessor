@@ -148,7 +148,7 @@ def solve_depth_geom(
 
 
 def create_restart(
-    cat_map: dict,
+    cat_map_temp: dict,
     crosswalk_ds: xr.Dataset,
     nwm_ds: xr.Dataset,
     routelink_ds: xr.Dataset,
@@ -166,7 +166,16 @@ def create_restart(
     Returns:
     - restart: t-route ingestible restart file (xr.Dataset)
     """
+    cat_map_temp = {
+        k[4:]: v for k, v in cat_map_temp.items()
+    }  # remove "cat" prefix from keys
 
+    cat_map = {}
+    for link_id in crosswalk_ds["link"].values:
+        if cat_map_temp.get(str(link_id)) is None:
+            cat_map[link_id] = []  # add empty list for missing cat_id
+        else:
+            cat_map[link_id] = cat_map_temp[str(link_id)]
     nwm_ids_flat = []
     cat_ids_flat = []
     for cat_id, nwm_ids in cat_map.items():
