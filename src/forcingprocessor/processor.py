@@ -1083,7 +1083,7 @@ def prep_ngen_data(conf):
             nwm_file_sizes_MB.append(len(response.content) / B2MB)
         else:
             file_obj = nwm_file
-            nwm_file_sizes_MB.append(os.path.getsize(nwm_file / B2MB))
+            nwm_file_sizes_MB.append(os.path.getsize(nwm_file) / B2MB)
 
         with xr.open_dataset(file_obj) as nwm_ds:
             data_array = create_restart(cat_map, crosswalk_ds, nwm_ds, routelink_ds)
