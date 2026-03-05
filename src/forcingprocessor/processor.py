@@ -843,7 +843,7 @@ def prep_ngen_data(conf):
     global ii_plot, nts_plot, ngen_vars_plot
     ii_plot = conf.get("plot",False)
     if ii_plot:
-        if data_source == "channel_routing" or "troute_restarts":
+        if data_source == "channel_routing" or data_source == "troute_restarts":
             raise RuntimeError("Plotting not supported for channel routing or restart processing.")
 
         nts_plot = conf["plot"].get("nts_plot",10)
@@ -1244,8 +1244,8 @@ def prep_ngen_data(conf):
             med_df.insert(0,"nexus id",list(nwm_ngen_map.keys()))
         else:
             # troute restarts won't need stats calculated for them since there's no time axis
-            avg_df = None
-            med_df = None
+            avg_df = pd.DataFrame()
+            med_df = pd.DataFrame()
 
         del data_array
 
@@ -1262,9 +1262,9 @@ def prep_ngen_data(conf):
             local_metapath = metaf_path
 
         write_df(metadata_df, "metadata.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
-        if avg_df != None:
+        if not avg_df.empty:
             write_df(avg_df, "catchments_avg.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
-        if med_df != None:
+        if not med_df.empty:
             write_df(med_df, "catchments_median.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
 
         meta_time = time.perf_counter() - t000
