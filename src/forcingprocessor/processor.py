@@ -965,8 +965,8 @@ def prep_ngen_data(conf):
     elif data_source == "channel_routing":
         pattern = r"nwm\.(\d{8})/(\w+)/nwm\.(\w+)(\d{2})z\.\w+\.channel_rt[^\.]*\.(\w+)(\d{2})\.conus\.nc"
     else:
-        #TODO: figure out what regex pattern goes here
         #s3://noaa-nwm-pds/nwm.20241029/analysis_assim/nwm.t16z.analysis_assim.channel_rt.tm00.conus.nc
+        pattern = r"nwm\.(\d{8})/analysis_assim/nwm\.t(\d{2})z\.analysis_assim\.channel_rt\.tm00\.conus\.nc"
         pass
 
     # Extract forecast cycle and lead time from the first and last file names
@@ -975,17 +975,22 @@ def prep_ngen_data(conf):
     FCST_CYCLE=None
     LEAD_START=None
     LEAD_END=None
-    if match:
-        URLBASE = match.group(2)
-        FCST_CYCLE = match.group(3) + match.group(4)
-        LEAD_START = match.group(5) + match.group(6)
+    if data_source != "troute_restarts":
+        if match:
+            URLBASE = match.group(2)
+            FCST_CYCLE = match.group(3) + match.group(4)
+            LEAD_START = match.group(5) + match.group(6)
+        else:
+            print(f"Could not extract forecast cycle and lead start from the first NWM forcing file: {nwm_forcing_files[0]}")
+        match = re.search(pattern, nwm_forcing_files[-1])
+        if match:
+            LEAD_END = match.group(5) + match.group(6)
+        else:
+            print(f"Could not extract lead end from the last NWM forcing file: {nwm_forcing_files[-1]}")
     else:
-        print(f"Could not extract forecast cycle and lead start from the first NWM forcing file: {nwm_forcing_files[0]}")
-    match = re.search(pattern, nwm_forcing_files[-1])
-    if match:
-        LEAD_END = match.group(5) + match.group(6)
-    else:
-        print(f"Could not extract lead end from the last NWM forcing file: {nwm_forcing_files[-1]}")
+        if match:
+            restart_date = match.group(1)
+            restart_hour = match.group(2)
 
     # Determine the file system type based on the first NWM forcing file
     global fs_type
@@ -1036,8 +1041,29 @@ def prep_ngen_data(conf):
 
     else:
         #TODO: make the troute restarts
+        nwm_aa_fp = nwm_forcing_files[0]
         data_array = create_restart(cat_map_fp, crosswalk_fp, nwm_aa_fp, rtlink_fp)
-        pass
+        nwm_file_sizes_MB = []
+        if fs_type == 'google':
+            fs_arg = gcsfs.GCSFileSystem()
+        if fs_arg:
+            if nwm_file.find('https://') >= 0:
+                _, bucket_key = convert_url2key(nwm_file,fs_type)
+            else:
+                bucket_key = nwm_file
+            file_obj   = fs_arg.open(bucket_key, mode='rb')
+            nwm_file_sizes_MB.append(file_obj.details['size'])
+        elif 'https://' in nwm_file:
+            response = requests.get(nwm_file, timeout=10)
+
+            if response.status_code == 200:
+                file_obj = BytesIO(response.content)
+            else:
+                raise RuntimeError(f"{nwm_file} does not exist")
+            nwm_file_sizes_MB.append(len(response.content) / B2MB)
+        else:
+            file_obj = nwm_file
+            nwm_file_sizes_MB.append(os.path.getsize(nwm_file / B2MB))
 
 
     log_time("PROCESSING_END", log_file)
@@ -1055,8 +1081,9 @@ def prep_ngen_data(conf):
             netcdf_cat_file_sizes_MB = write_netcdf_chrt(
                 storage_type, forcing_path, data_array, t_ax, filename)
         else:
-            #TODO: write the troute restart out to a file
-            pass
+            filename = "channel_restart" + restart_date + "_" + restart_hour + "0000.nc"
+            data_array.to_netcdf(filename)
+            netcdf_cat_file_sizes_MB = [os.path.getsize(filename) / B2MB]
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):
@@ -1067,9 +1094,7 @@ def prep_ngen_data(conf):
             forcing_cat_ids, filenames, individual_cat_file_sizes_MB, individual_cat_file_sizes_MB_zipped, tar_buffs = multiprocess_write_df(
                 data_array,t_ax,list(nwm_ngen_map.keys()),nprocs,forcing_path,data_source)
         else:
-            #TODO: figure out what goes here for troute restarts, pretty sure it's just a pass
-            # because it will never get written out as a dataframe
-            pass
+            print("Dataframes don't get written for t-route restarts")
 
     write_time += time.perf_counter() - t0
     write_rate = ncatchments / write_time
@@ -1171,8 +1196,13 @@ def prep_ngen_data(conf):
                 "netcdf_catch_file_size_std_MB"  : [netcdf_catch_file_size_std]
             }
         else:
-            #TODO figure out what metadata for troute restarts
-            pass
+            # metadata for troute restart gen
+            metadata = {
+                "runtime_s"               : [round(runtime,2)],
+                "nwmfiles_input"          : [len(nwm_forcing_files)],
+                "nwm_file_size"    : [nwm_file_size_avg],
+                "netcdf_catch_file_size_MB"  : [netcdf_catch_file_size_avg],
+            }
 
         if data_source == "forcings":
             data_avg = np.average(data_array,axis=0)
@@ -1191,8 +1221,9 @@ def prep_ngen_data(conf):
             med_df = pd.DataFrame(data_med.T,columns=['q_lateral'])
             med_df.insert(0,"nexus id",list(nwm_ngen_map.keys()))
         else:
-            #TODO pretty sure troute restarts won't need stats calculated for them
-            pass
+            # troute restarts won't need stats calculated for them since there's no time axis
+            avg_df = None
+            med_df = None
 
         del data_array
 
@@ -1209,8 +1240,10 @@ def prep_ngen_data(conf):
             local_metapath = metaf_path
 
         write_df(metadata_df, "metadata.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
-        write_df(avg_df, "catchments_avg.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
-        write_df(med_df, "catchments_median.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
+        if avg_df != None:
+            write_df(avg_df, "catchments_avg.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
+        if med_df != None:
+            write_df(med_df, "catchments_median.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
 
         meta_time = time.perf_counter() - t000
         log_time("METADATA_END", log_file)
