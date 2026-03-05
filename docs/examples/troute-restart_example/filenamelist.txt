@@ -1,0 +1,1 @@
+https://noaa-nwm-pds.s3.amazonaws.com/nwm.20250718/analysis_assim/nwm.t00z.analysis_assim.channel_rt.tm00.conus.nc
