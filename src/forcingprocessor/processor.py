@@ -20,7 +20,7 @@ from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
 from forcingprocessor.channel_routing_tools import channelrouting_nwm2ngen, write_netcdf_chrt
-from forcingprocessor.troute_restart_tools import make_troute_restart
+from forcingprocessor.troute_restart_tools import create_restart
 
 B2MB = 1048576
 
@@ -1036,7 +1036,7 @@ def prep_ngen_data(conf):
 
     else:
         #TODO: make the troute restarts
-        data_array = make_troute_restart()
+        data_array = create_restart(cat_map_fp, crosswalk_fp, nwm_aa_fp, rtlink_fp)
         pass
 
 
