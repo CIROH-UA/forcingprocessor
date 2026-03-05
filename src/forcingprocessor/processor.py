@@ -792,6 +792,8 @@ def prep_ngen_data(conf):
 
     map_file_path = conf['forcing'].get("map_file",None)
     restart_map_file_path = conf['forcings'].get("restart_map_file", None)
+    crosswalk_file_path = conf['forcings'].get("crosswalk_file", None)
+    routelink_file_path = conf['forcings'].get("routelink_file", None)
     if map_file_path: # NWM to NGEN channel routing processing requires json map
         data_source = "channel_routing"
         if "s3://" in map_file_path:
@@ -803,13 +805,29 @@ def prep_ngen_data(conf):
                 full_nwm_ngen_map = json.load(map_file)
     elif restart_map_file_path:
         data_source = "troute_restarts"
+
         if "s3://" in restart_map_file_path:
             s3 = s3fs.S3FileSystem(anon=True)
             with s3.open(restart_map_file_path, "r") as map_file:
-                restart_map = json.load(map_file)
+                cat_map = json.load(map_file)
         else:
             with open(map_file_path, "r", encoding="utf-8") as map_file:
-                restart_map = json.load(map_file)
+                cat_map = json.load(map_file)
+
+        if "s3://" in crosswalk_file_path:
+            s3 = s3fs.S3FileSystem(anon=True)
+            with s3.open(crosswalk_file_path, "rb") as crosswalk_file:
+                crosswalk_ds = xr.open_dataset(crosswalk_file)
+        else:
+            crosswalk_ds = xr.open_dataset(crosswalk_file_path)
+
+        if "s3://" in routelink_file_path:
+            s3 = s3fs.S3FileSystem(anon=True)
+            with s3.open(routelink_file_path, "rb") as routelink_file:
+                routelink_ds = xr.open_dataset(routelink_file)
+        else:
+            routelink_ds = xr.open_dataset(routelink_file_path)
+
     else:
         data_source = "forcings"
 
@@ -1040,9 +1058,7 @@ def prep_ngen_data(conf):
         if ii_verbose: print(f'Data extract processs: {nprocs:.2f}\nExtract time: {t_extract:.2f}\nComplexity: {complexity:.2f}\nScore: {score:.2f}\n', end=None,flush=True)
 
     else:
-        #TODO: make the troute restarts
-        nwm_aa_fp = nwm_forcing_files[0]
-        data_array = create_restart(cat_map_fp, crosswalk_fp, nwm_aa_fp, rtlink_fp)
+        nwm_file = nwm_forcing_files[0]
         nwm_file_sizes_MB = []
         if fs_type == 'google':
             fs_arg = gcsfs.GCSFileSystem()
@@ -1065,6 +1081,8 @@ def prep_ngen_data(conf):
             file_obj = nwm_file
             nwm_file_sizes_MB.append(os.path.getsize(nwm_file / B2MB))
 
+        with xr.open_dataset(file_obj) as nwm_ds:
+            data_array = create_restart(cat_map, crosswalk_ds, nwm_ds, routelink_ds)
 
     log_time("PROCESSING_END", log_file)
 

@@ -3,69 +3,9 @@ Tools to extract and write streamflow and depth values into a restart format ing
 t-route. Translates between NWM and NGEN IDs!
 """
 
-import json
-from pathlib import Path
 import xarray as xr
 import numpy as np
 import pandas as pd
-
-
-def read_files(
-    cat_map_fp: Path, crosswalk_fp: Path, nwm_aa_fp: Path, rtlink_fp: Path
-) -> tuple[dict, xr.Dataset, xr.Dataset, xr.Dataset]:
-    """
-    Open and process needed files
-
-    Parameters:
-    - cat_map_fp: path to NGEN to NWM catchment json file (Path)
-    - crosswalk_fp: path to "crosswalk" NetCDF file that has all the
-    NextGen catchments in the order that the restart file will have them in (Path)
-    - nwm_aa_fp: path to NWM analysis/assimilation NetCDF (Path)
-    - rtlink_fp: path to NWM RouteLink channel geometry NetCDF (Path)
-
-    Returns:
-    - cat_map, crosswalk_ds, nwm_ds, routelink_ds: (tuple[dict, xr.Dataset, xr.Dataset, xr.Dataset])
-    """
-    with open(cat_map_fp, "r", encoding="utf-8") as cat_map_file:
-        cat_map_temp = json.load(cat_map_file)
-    cat_map_temp = {
-        k[4:]: v for k, v in cat_map_temp.items()
-    }  # remove "cat" prefix from keys
-    crosswalk_ds = xr.open_dataset(crosswalk_fp)
-    cat_map = {}
-    for link_id in crosswalk_ds["link"].values:
-        if cat_map_temp.get(str(link_id)) is None:
-            cat_map[link_id] = []  # add empty list for missing cat_id
-        else:
-            cat_map[link_id] = cat_map_temp[str(link_id)]
-    nwm_ds = xr.open_dataset(nwm_aa_fp)
-    routelink_ds = xr.open_dataset(rtlink_fp)
-
-    return cat_map, crosswalk_ds, nwm_ds, routelink_ds
-
-
-def flat_map(cat_map: dict) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Build a flat mapping: nwm_id -> nexus_id
-
-    Parameters:
-    - cat_map: a one-to-many mapping (dict)
-
-    Returns:
-    - nwm_ids_flat, cat_ids_flat: np.ndarrays of the same length
-
-    """
-    nwm_ids_flat = []
-    cat_ids_flat = []
-    for cat_id, nwm_ids in cat_map.items():
-        for nwm_id in nwm_ids:
-            nwm_ids_flat.append(nwm_id)
-            cat_ids_flat.append(cat_id)
-
-    nwm_ids_flat = np.array(nwm_ids_flat, dtype=float)
-    cat_ids_flat = np.array(cat_ids_flat)
-
-    return nwm_ids_flat, cat_ids_flat
 
 
 def average_nwm_variables(
@@ -207,14 +147,14 @@ def solve_depth_geom(
     return depths
 
 
-def calculate_restart_values(
+def create_restart(
     cat_map: dict,
     crosswalk_ds: xr.Dataset,
     nwm_ds: xr.Dataset,
     routelink_ds: xr.Dataset,
-) -> pd.DataFrame:
+) -> xr.Dataset:
     """
-    Average depth calculation params, execute depth calculation
+    Creates t-route restart file.
 
     Parameters:
     - cat_map: NGEN to NWM catchment json file (dict)
@@ -224,11 +164,19 @@ def calculate_restart_values(
     - routelink_ds: NWM RouteLink channel geometry NetCDF (xr.Dataset)
 
     Returns:
-    - result_df: pd.DataFrame with calculated restart values
-
+    - restart: t-route ingestible restart file (xr.Dataset)
     """
 
-    nwm_ids_flat, cat_ids_flat = flat_map(cat_map)
+    nwm_ids_flat = []
+    cat_ids_flat = []
+    for cat_id, nwm_ids in cat_map.items():
+        for nwm_id in nwm_ids:
+            nwm_ids_flat.append(nwm_id)
+            cat_ids_flat.append(cat_id)
+
+    nwm_ids_flat = np.array(nwm_ids_flat, dtype=float)
+    cat_ids_flat = np.array(cat_ids_flat)
+
     nwm_agg, mapping_df = average_nwm_variables(nwm_ids_flat, cat_ids_flat, nwm_ds)
     rl_agg = average_rtlink_variables(nwm_ids_flat, mapping_df, routelink_ds)
     result_df = pd.DataFrame({"cat_id": crosswalk_ds["link"].values})
@@ -243,31 +191,6 @@ def calculate_restart_values(
         cs=np.array(result_df["ChSlp"].values),
     )
     result_df["depth"] = depths
-
-    return result_df
-
-
-def create_restart(
-    cat_map_fp: Path, crosswalk_fp: Path, nwm_aa_fp: Path, rtlink_fp: Path
-) -> xr.Dataset:
-    """
-    Creates t-route restart file.
-
-    Parameters:
-    - cat_map_fp: path to NGEN to NWM catchment json file (Path)
-    - crosswalk_fp: path to "crosswalk" NetCDF file that has all the
-    NextGen catchments in the order that the restart file will have them in (Path)
-    - nwm_aa_fp: path to NWM analysis/assimilation NetCDF (Path)
-    - rtlink_fp: path to NWM RouteLink channel geometry NetCDF (Path)
-
-    Returns:
-    - restart: t-route ingestible restart file (xr.Dataset)
-    """
-    cat_map, crosswalk_ds, nwm_ds, routelink_ds = read_files(
-        cat_map_fp, crosswalk_fp, nwm_aa_fp, rtlink_fp
-    )
-
-    result_df = calculate_restart_values(cat_map, crosswalk_ds, nwm_ds, routelink_ds)
 
     # create netcdf
     restart = xr.Dataset(
