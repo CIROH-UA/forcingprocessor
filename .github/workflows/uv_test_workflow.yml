@@ -60,9 +60,9 @@ jobs:
         run: uv run python src/forcingprocessor/processor.py ./configs/conf_fp.json 
       
           
-      # - name: Test with pytest
-      #   run: |
-      #     python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_csv_output_type
-      #     python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_parquet_output_type
-      #     python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_s3_output
-      #     python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_tar_output_type
+      - name: Test with pytest
+        run: |
+          uv run python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_csv_output_type
+          uv run python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_parquet_output_type
+          uv run python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_s3_output
+          uv run python -m pytest -q --tb=short --disable-warnings --maxfail=1 -k test_tar_output_type
