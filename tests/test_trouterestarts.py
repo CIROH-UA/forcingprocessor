@@ -55,6 +55,7 @@ simple_cat_map = {
 
 
 def test_averages_streamflow_and_velocity():
+    """Test average_nwm_variables"""
     # cat 1 -> features 101 (sf=10, v=1) and 102 (sf=20, v=2) => mean sf=15, v=1.5
     # cat 2 -> feature  103 (sf=30, v=3)                       => mean sf=30, v=3.0
     nwm_ids = np.array([101.0, 102.0, 103.0])
@@ -74,6 +75,7 @@ def test_averages_streamflow_and_velocity():
 
 
 def test_averages_routelink():
+    """Test average_rtlink_variables"""
     nwm_ids = np.array([101.0, 102.0, 103.0, 104.0])
     mapping = pd.DataFrame(
         {"feature_id": [101.0, 102.0, 103.0, 104.0], "cat_id": [1, 1, 2, 2]}
@@ -91,6 +93,7 @@ def test_averages_routelink():
 
 
 def test_quadratic_formula():
+    """Test quadratic_formula"""
     # Two equations: [x^2+2x-3, x^2-4] -> roots [1, 2]
     b = np.array([2.0, 0.0])
     c = np.array([-3.0, -4.0])
@@ -99,6 +102,7 @@ def test_quadratic_formula():
 
 
 def test_solve_depth_geom():
+    """Test solve_depth_geom"""
     sf = np.array([0.0, 5.0, 2.0, 8.0, 1000.0, np.nan])
     v = np.array([1.0, 0.0, 1.0, 1.0, 1.0, 1.0])
     tw = np.array([10.0, 10.0, 10.0, 10.0, 10.0, 10.0])
@@ -116,6 +120,7 @@ def test_solve_depth_geom():
 
 
 def test_restart():
+    """Test create_restart"""
     result = create_restart(
         simple_cat_map, simple_crosswalk_ds, simple_nwm_ds, simple_routelink_ds
     )
@@ -135,4 +140,3 @@ def test_restart():
     assert (
         result["qlink1"].values[1] == result["qlink2"].values[1] == pytest.approx(35.0)
     )
-
