@@ -23,9 +23,15 @@ on:
 
     paths:
       - 'versions.yml'
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - '.python-version'
   pull_request:
     paths:
       - 'versions.yml'
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - '.python-version'
 
 permissions:
   contents: read

@@ -7,14 +7,20 @@ on:
       - fp_workflow
       - trivy_scan
     paths:
-      - 'docker/**' 
+      - 'docker/**'
       - 'src/forcingprocessor/**'
       - '!src/forcingprocessor/README.md'
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - '.python-version'
   pull_request:
     paths:
-      - 'docker/**' 
+      - 'docker/**'
       - 'src/forcingprocessor/**'
       - '!src/forcingprocessor/README.md'
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - '.python-version'
 permissions:
   contents: read
   security-events: write
