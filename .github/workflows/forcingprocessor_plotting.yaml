@@ -10,12 +10,18 @@ on:
     paths:
       - 'src/forcingprocessor/**'
       - '!src/forcingprocessor/README.md'
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - '.python-version'
   pull_request:
     branches:
-      - main    
-    paths:      
+      - main
+    paths:
       - 'src/forcingprocessor/**'
       - '!src/forcingprocessor/README.md'
+      - 'pyproject.toml'
+      - 'setup.cfg'
+      - '.python-version'
 
 permissions:
   contents: read
@@ -24,14 +30,14 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
-        python-version: [3.9]
+        python-version: ['3.11']
     runs-on: ${{ matrix.os }}
 
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v3
+        uses: actions/setup-python@v5
         with:
           python-version: ${{ matrix.python-version }}
 
