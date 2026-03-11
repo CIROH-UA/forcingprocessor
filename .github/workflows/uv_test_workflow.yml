@@ -47,11 +47,18 @@ jobs:
           aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws configure set region us-east-1           
           
-      - name: Install dependencies
+      - name: Install UV and create venv
         run: |
           curl -LsSf https://astral.sh/uv/install.sh | sh
           uv venv
+      - name: add dependencies with requirements file
+        run: |
           uv pip install -r requirements.txt
+      - name: make data directory
+        run: mkdir -p   data/forcing
+      - name: Run the forcingprocessor with UV
+        run: uv run python src/forcingprocessor/processor.py ./configs/conf_fp.json 
+      
           
       # - name: Test with pytest
       #   run: |
