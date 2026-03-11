@@ -1011,6 +1011,8 @@ def prep_ngen_data(conf):
         if match:
             restart_date = match.group(1)
             restart_hour = match.group(2)
+        else:
+            print("Could not extract restart date and time")
 
     # Determine the file system type based on the first NWM forcing file
     global fs_type
@@ -1064,6 +1066,8 @@ def prep_ngen_data(conf):
         nwm_file_sizes_MB = []
         if fs_type == 'google':
             fs_arg = gcsfs.GCSFileSystem()
+        elif fs_type == 's3':
+            fs_arg = s3fs.S3FileSystem(anon=True)
         else:
             fs_arg = None
         if fs_arg:
@@ -1104,8 +1108,8 @@ def prep_ngen_data(conf):
                 storage_type, forcing_path, data_array, t_ax, filename)
         else:
             filename = "channel_restart_" + restart_date + "_" + restart_hour + "0000.nc"
-            data_array.to_netcdf(filename)
-            netcdf_cat_file_sizes_MB = [os.path.getsize(filename) / B2MB]
+            data_array.to_netcdf(forcing_path / Path(filename))
+            netcdf_cat_file_sizes_MB = [os.path.getsize(forcing_path / filename) / B2MB]
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):
