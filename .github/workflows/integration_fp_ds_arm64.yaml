@@ -38,9 +38,13 @@ on:
       - 'setup.cfg'
       - '.python-version'
   
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
-  security-events: write 
+  security-events: write
 
 jobs:    
   build-test-docker-arm:
