@@ -29,12 +29,13 @@ jobs:
   build-arm64:
     runs-on: ubuntu-22.04-arm-aws
     steps:
-      - name: Pre-cleanup workspace
+      - name: Pre-cleanup workspace and Docker
         continue-on-error: true
         run: |
           sudo rm -rf ${{ github.workspace }}/* || true
           sudo rm -rf ${{ github.workspace }}/.* || true
-          
+          docker system prune -af || true
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -62,18 +63,18 @@ jobs:
 
       - name: Save Docker images
         run: |
-          docker save awiciroh/forcingprocessor:latest-arm64 | gzip > /tmp/forcingprocessor-arm64.tar.gz
+          docker save awiciroh/forcingprocessor:latest-arm64 | gzip > ${{ runner.temp }}/forcingprocessor-arm64.tar.gz
           
       - name: Upload forcingprocessor image
         uses: actions/upload-artifact@v4
         with:
           name: forcingprocessor-arm64
-          path: /tmp/forcingprocessor-arm64.tar.gz
+          path: ${{ runner.temp }}/forcingprocessor-arm64.tar.gz
           retention-days: 1
 
       - name: Clean up local tar files
         if: always()
-        run: rm -f /tmp/forcingprocessor-arm64.tar.gz
+        run: rm -f ${{ runner.temp }}/forcingprocessor-arm64.tar.gz
 
 
   test-arm64:
@@ -140,30 +141,31 @@ jobs:
     name: "${{ matrix.test-suite.name }}"
     
     steps:
-      - name: Pre-cleanup workspace
+      - name: Pre-cleanup workspace and Docker
         continue-on-error: true
         run: |
           sudo rm -rf ${{ github.workspace }}/* || true
           sudo rm -rf ${{ github.workspace }}/.* || true
-          
+          docker system prune -af || true
+
       - name: Checkout code
         uses: actions/checkout@v4
-        
+
       - name: Download Docker image
         uses: actions/download-artifact@v4
         with:
-          name: forcingprocessor-arm64  
-          path: /tmp/artifacts
+          name: forcingprocessor-arm64
+          path: ${{ runner.temp }}/artifacts
 
 
       - name: Verify artifact and load
         run: |
           set -euo pipefail
-          ls -lh /tmp/artifacts
+          ls -lh ${{ runner.temp }}/artifacts
           
           # Load gzipped image
           for i in 1 2 3; do
-            if gunzip -c /tmp/artifacts/forcingprocessor-arm64.tar.gz | docker load; then
+            if gunzip -c ${{ runner.temp }}/artifacts/forcingprocessor-arm64.tar.gz | docker load; then
               echo "Successfully loaded image on attempt $i"
               docker images | grep forcingprocessor
               break
