@@ -20,7 +20,7 @@ from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
 from forcingprocessor.channel_routing_tools import channelrouting_nwm2ngen, write_netcdf_chrt
-from forcingprocessor.troute_restart_tools import create_restart
+from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_restart
 
 B2MB = 1048576
 
@@ -1108,8 +1108,9 @@ def prep_ngen_data(conf):
                 storage_type, forcing_path, data_array, t_ax, filename)
         else:
             filename = "channel_restart_" + restart_date + "_" + restart_hour + "0000.nc"
-            data_array.to_netcdf(forcing_path / Path(filename))
-            netcdf_cat_file_sizes_MB = [os.path.getsize(forcing_path / filename) / B2MB]
+            netcdf_cat_file_sizes_MB = write_netcdf_restart(
+                storage_type, forcing_path, data_array, filename
+            )
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose: print(f'Writing catchment forcings to {output_path}!', end=None,flush=True)
     if ii_plot or ii_collect_stats or any(x in output_file_type for x in ["csv","parquet","tar"]):

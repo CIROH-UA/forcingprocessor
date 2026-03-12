@@ -3,9 +3,16 @@ Tools to extract and write streamflow and depth values into a restart format ing
 t-route. Translates between NWM and NGEN IDs!
 """
 
+from pathlib import Path
+import tempfile
+import os
 import xarray as xr
 import numpy as np
 import pandas as pd
+import boto3
+from forcingprocessor.utils import convert_url2key
+
+B2MB = 1048576
 
 
 def average_nwm_variables(
@@ -217,3 +224,34 @@ def create_restart(
     )
 
     return restart
+
+
+def write_netcdf_restart(storage_type: str, prefix: Path, ds: xr.Dataset, name: str):
+    """
+    Write restart data to a NetCDF file.
+
+    Parameters:
+        storage_type (str): s3 or local
+        prefix (Path): filename prefix
+        data (xr.Dataset): restart file
+        name (str): string for the filename
+    Returns:
+        netcdf_cat_file_size (list): file size of output netcdf
+    """
+    if storage_type == "s3":
+        s3_client = boto3.session.Session().client("s3")
+        nc_filename = str(prefix) + "/" + name
+        bucket, key = convert_url2key(nc_filename, "s3")
+        with tempfile.NamedTemporaryFile(suffix=".nc") as tmpfile:
+            ds.to_netcdf(tmpfile.name, engine="netcdf4")
+            netcdf_cat_file_size = os.path.getsize(tmpfile.name) / B2MB
+            tmpfile.flush()
+            tmpfile.seek(0)
+            print(f"Uploading netcdf forcings to S3: bucket={bucket}, key={key}")
+            s3_client.upload_file(tmpfile.name, bucket, key)
+    else:
+        nc_filename = Path(prefix, name)
+        ds.to_netcdf(nc_filename, engine="netcdf4")
+        print(f"netcdf has been written to {nc_filename}")
+        netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
+    return [netcdf_cat_file_size]
