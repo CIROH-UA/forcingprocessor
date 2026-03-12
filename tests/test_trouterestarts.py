@@ -161,7 +161,6 @@ if os.path.exists(data_dir):
     os.system(f"rm -rf {data_dir}")
 os.system(f"mkdir {data_dir}")
 FILENAMELIST = str((pwd/"filenamelist.txt").resolve())
-RETRO_FILENAMELIST = str((pwd/"retro_filenamelist.txt").resolve())
 
 conf = {
     "forcing"  : {
@@ -276,7 +275,6 @@ def test_noaa_nwm_pds_s3():
 
 def test_s3_output():
     test_bucket = "ciroh-community-ngen-datastream"
-    conf['forcing']['nwm_file'] = RETRO_FILENAMELIST
     conf['storage']['output_path'] = f's3://{test_bucket}/test/cicd/forcingprocessor/pytest'
     nwmurl_conf["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf)
@@ -287,6 +285,6 @@ def test_netcdf_output_type():
     generate_nwmfiles(nwmurl_conf)
     conf['storage']['output_file_type'] = ["netcdf"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/"restart/channel_restart_20180101_000000.nc").resolve()
+    assert_file=(data_dir/"restart/channel_restart_{date}_{HOURMINUTE}00.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
