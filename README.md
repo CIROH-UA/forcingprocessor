@@ -9,7 +9,7 @@ The motivation for this tool is NWM data is gridded and stored within netCDFs fo
 ```
     curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-## create a Python virtual environment
+## Create a Python virtual environment
 ```
     uv venv
 ```
