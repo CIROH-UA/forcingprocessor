@@ -16,7 +16,8 @@ The motivation for this tool is NWM data is gridded and stored within netCDFs fo
 ## install requirement files
 
 ```
-   uv pip install -r requirements.txt
+   
+   uv pip install -r pyproject.toml
 ```
 ## make directory for output data
 ```
