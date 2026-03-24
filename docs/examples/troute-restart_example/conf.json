@@ -1,0 +1,20 @@
+{
+    "forcing"  : {
+        "nwm_file"   : "filenamelist.txt",
+        "restart_map_file"  : "hf2.2_subset_cat_map.json",
+        "crosswalk_file" : "crosswalk_subset.nc",
+        "routelink_file" : "RouteLink_CONUS_subset.nc"
+    },
+
+    "storage":{
+        "storage_type"      : "local",
+        "output_path"       : "./restart",
+        "output_file_type" : ["netcdf"]
+    },
+
+    "run" : {
+        "verbose"       : true,
+        "collect_stats" : true,
+        "nprocs"        : 8
+    }
+}

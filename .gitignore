@@ -6,4 +6,5 @@ tests/__pycache__/
 tests/data/
 tests/*.txt
 docs/examples/*/forcings
+docs/examples/*/restart
 *.txt
