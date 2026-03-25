@@ -1314,7 +1314,7 @@ def prep_ngen_data(conf):
     else:
         os.system(f"mv ./profile_fp.txt {metaf_path}")
 
-if __name__ == "__main__":
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         dest="infile", type=str, help="A json containing user inputs to run forcingprocessor"
@@ -1332,3 +1332,6 @@ if __name__ == "__main__":
             conf = json.load(open(args.infile))
 
     prep_ngen_data(conf)
+
+if __name__ == "__main__":
+    main()

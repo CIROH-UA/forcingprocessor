@@ -1,6 +1,44 @@
-[build-system]
-build-backend = "setuptools.build_meta"
-requires = [
-  "setuptools>=42",
-  "wheel",
+[project]
+name = "forcingprocessor"
+version = "0.1.0"
+description = "Tool to convert nwm forcing netcdfs to ngen compatible files"
+readme = "README.md"
+authors = [
+    { name = "Jordan J. Laser", email = "jlaser@lynker.com" }
 ]
+requires-python = ">=3.11"
+dependencies = [
+    "boto3",
+    "cftime",
+    "dask",
+    "exactextract",
+    "gcsfs",
+    "geopandas",
+    "imageio",
+    "matplotlib",
+    "netCDF4",
+    "h5netcdf",
+    "h5py",
+    "nwmurl==1.0.1",
+    "pandas",
+    "psutil",
+    "pyarrow",
+    "pyogrio",
+    "requests",
+    "s3fs",
+    "scipy",
+    "xarray",
+]
+
+[project.optional-dependencies]
+develop = ["pytest"]
+
+[project.scripts]
+forcingprocessor = "forcingprocessor.processor:main"
+
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
