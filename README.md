@@ -5,27 +5,25 @@ The motivation for this tool is NWM data is gridded and stored within netCDFs fo
 
 ![forcing_gif](docs/gifs/T2D_2_TMP_2maboveground_cali.gif)
 
-## Install UV early
+## Install UV
 ```
-    curl -LsSf https://astral.sh/uv/install.sh | sh
+curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
-## Create a Python virtual environment
+## Create a Python Virtual Environment
 ```
-    uv venv
+uv venv
 ```
-## install requirement files
-
+## Install Requirements
 ```
-   
-   uv pip install -r pyproject.toml
+uv pip install -r pyproject.toml
 ```
-## make directory for output data
+## Create Output Directory
 ```
-    mkdir -p   data/forcing
+mkdir -p data/forcing
 ```
-## Run the forcingprocessor with UV
+## Run the Forcingprocessor
 ```
-uv run python src/forcingprocessor/processor.py ./configs/conf_fp.json 
+uv run python src/forcingprocessor/processor.py ./configs/conf_fp.json
 ```
 Prior to executing the processor, the user will need to obtain a geopackage file to define the spatial domain. The user will define the time domain by generating the forcing filenames for `processor.py` via `nwm_filenames_generator.py`, which is explained [here](#nwm_file). Note that `forcingprocessor` will calcuate weights if not found within the geopackage file.
 
@@ -82,6 +80,9 @@ where the list of `nwm-id`s are the NHD reaches associated with that NextGen hyd
 | nwm_file          | Path to a text file containing nwm file names. One filename per line. [Tool](#nwm_file) to create this file | :white_check_mark: |
 | gpkg_file       | Geopackage file to define spatial domain. Use [hfsubset](https://github.com/lynker-spatial/hfsubsetCLI) to generate a geopackage with a `forcing-weights` layer. Accepts local absolute path, s3 URI or URL. Also acceptable is a weights parquet generated with [weights_hf2ds.py](https://github.com/CIROH-UA/forcingprocessor/blob/main/src/forcingprocessor/weights_hf2ds.py), though the plotting option will no longer be available. |  :white_check_mark: |
 | map_file          | Path to a json containing the NWM to NGEN mapping for channel routing data extraction. Absolute path or s3 URI |  |
+| restart_map_file          | Path to a json containing the NWM to NGEN catchment mapping for t-route restart generation. Absolute path or s3 URI |  |
+| crosswalk_file          | Path to a netCDF containing the exact order of the catchments in the t-route restart file. Absolute path or s3 URI |  |
+| routelink_file          | Path to a netCDF containing the NWM channel geometry data, needed for t-route restart generation. Absolute path or s3 URI |  |
 
 ### 2. Storage
 

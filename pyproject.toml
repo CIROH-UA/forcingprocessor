@@ -34,7 +34,7 @@ dependencies = [
 develop = ["pytest"]
 
 [project.scripts]
-forcingprocessor = "forcingprocessor:main"
+forcingprocessor = "forcingprocessor.processor:main"
 
 [build-system]
 requires = ["setuptools>=64"]
