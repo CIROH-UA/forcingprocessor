@@ -817,16 +817,16 @@ def prep_ngen_data(conf):
         if "s3://" in crosswalk_file_path:
             s3 = s3fs.S3FileSystem(anon=True)
             with s3.open(crosswalk_file_path, "rb") as crosswalk_file:
-                crosswalk_ds = xr.open_dataset(crosswalk_file)
+                crosswalk_ds = xr.open_dataset(crosswalk_file).load()
         else:
-            crosswalk_ds = xr.open_dataset(crosswalk_file_path)
+            crosswalk_ds = xr.open_dataset(crosswalk_file_path).load()
 
         if "s3://" in routelink_file_path:
             s3 = s3fs.S3FileSystem(anon=True)
             with s3.open(routelink_file_path, "rb") as routelink_file:
-                routelink_ds = xr.open_dataset(routelink_file)
+                routelink_ds = xr.open_dataset(routelink_file).load()
         else:
-            routelink_ds = xr.open_dataset(routelink_file_path)
+            routelink_ds = xr.open_dataset(routelink_file_path).load()
 
     else:
         data_source = "forcings"
@@ -1089,8 +1089,8 @@ def prep_ngen_data(conf):
             file_obj = nwm_file
             nwm_file_sizes_MB.append(os.path.getsize(nwm_file) / B2MB)
 
-        with xr.open_dataset(file_obj) as nwm_ds:
-            data_array = create_restart(cat_map, crosswalk_ds, nwm_ds, routelink_ds)
+        nwm_ds = xr.open_dataset(file_obj).load()
+        data_array = create_restart(cat_map, crosswalk_ds, nwm_ds, routelink_ds)
 
     log_time("PROCESSING_END", log_file)
 
