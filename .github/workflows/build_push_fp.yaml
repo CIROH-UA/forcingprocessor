@@ -139,6 +139,7 @@ jobs:
         role-to-assume: arn:aws:iam::879381264451:role/github-actions-terraform-oidc
         aws-region: us-east-1
 
+
     - name: Build docker containers
       run: |
           if [ "${{ needs.detect-changes.outputs.build_deps }}" == "true" ]; then
