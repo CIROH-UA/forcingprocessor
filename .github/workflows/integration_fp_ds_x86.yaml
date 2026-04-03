@@ -43,6 +43,7 @@ concurrency:
   cancel-in-progress: true
 
 permissions:
+  id-token: write
   contents: read
   security-events: write
 
@@ -57,13 +58,13 @@ jobs:
       uses: docker/login-action@v3
       with:
         username: ${{secrets.DOCKERHUB_USERNAME}}
-        password: ${{secrets.DOCKERHUB_TOKEN}}        
+        password: ${{secrets.DOCKERHUB_TOKEN}}
 
-    - name: Configure AWS
-      run: |
-        aws configure set aws_access_key_id ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws configure set aws_secret_access_key ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws configure set region us-east-1
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        role-to-assume: arn:aws:iam::879381264451:role/github-actions-terraform-oidc
+        aws-region: us-east-1
         
     # - name: Install packages for datastream
     #   run: |
