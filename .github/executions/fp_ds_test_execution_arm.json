@@ -31,7 +31,11 @@
         "Tags": [
             {
                 "Key"   : "Name",
-                "Value" : "arm_docker_buildNtester"
+                "Value" : "ci_fp_integration_test_arm"
+            },
+            {
+                "Key"   : "Project",
+                "Value" : "ci_fp_integration_test_arm"
             }
         ]
     }
