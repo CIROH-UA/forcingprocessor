@@ -217,7 +217,8 @@ def create_restart(
         },
         coords={"links": range(len(result_df))},
         attrs={
-            "Restart_Time": pd.Timestamp(nwm_ds["time"].values[0]).strftime(
+            "Restart_Time": (
+                pd.Timestamp(nwm_ds["time"].values[0]) + pd.Timedelta(hours=1)).strftime(
                 "%Y-%m-%d_%H:%M:%S"
             )
         },
