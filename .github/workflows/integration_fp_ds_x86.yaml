@@ -29,6 +29,7 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/integration_fp_ds_x86.yaml'
   pull_request:
     paths:
       - 'docker/**'
@@ -37,6 +38,7 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/integration_fp_ds_x86.yaml'
   
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

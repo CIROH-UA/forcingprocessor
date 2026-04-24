@@ -13,6 +13,7 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/build_test_fp_arm.yaml'
   pull_request:
     paths:
       - 'docker/**'
@@ -21,6 +22,7 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/build_test_fp_arm.yaml'
 permissions:
   id-token: write
   contents: read
