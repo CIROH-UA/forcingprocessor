@@ -26,12 +26,16 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/build_push_fp.yaml'
+      - '.github/executions/fp_push_execution_arm.json'
   pull_request:
     paths:
       - 'versions.yml'
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/build_push_fp.yaml'
+      - '.github/executions/fp_push_execution_arm.json'
 
 permissions:
   id-token: write
