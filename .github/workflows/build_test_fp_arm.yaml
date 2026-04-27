@@ -13,6 +13,8 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/build_test_fp_arm.yaml'
+      - 'tests/test_hf2ds.py'
   pull_request:
     paths:
       - 'docker/**'
@@ -21,6 +23,8 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/build_test_fp_arm.yaml'
+      - 'tests/test_hf2ds.py'
 permissions:
   id-token: write
   contents: read
