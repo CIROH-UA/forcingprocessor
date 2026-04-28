@@ -13,6 +13,8 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/forcingprocessor_weights.yaml'
+      - 'tests/test_hf2ds.py'
   pull_request:
     branches:
       - main
@@ -22,6 +24,8 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/forcingprocessor_weights.yaml'
+      - 'tests/test_hf2ds.py'
 
 permissions:
   id-token: write

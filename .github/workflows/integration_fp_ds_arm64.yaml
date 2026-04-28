@@ -29,6 +29,8 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/integration_fp_ds_arm64.yaml'
+      - '.github/executions/fp_ds_test_execution_arm.json'
   pull_request:
     paths:
       - 'docker/**'
@@ -37,6 +39,8 @@ on:
       - 'pyproject.toml'
       - 'setup.cfg'
       - '.python-version'
+      - '.github/workflows/integration_fp_ds_arm64.yaml'
+      - '.github/executions/fp_ds_test_execution_arm.json'
   
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

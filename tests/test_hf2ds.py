@@ -21,7 +21,7 @@ def test_parquet_v21():
     # assert len(weights) > 0
 
 def test_gpkg_v21():
-    os.system(f"curl -o {gpkg_path} -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/{geopackage_name}")
+    os.system(f"curl -o {gpkg_path} -L -O https://ciroh-community-ngen-datastream.s3.amazonaws.com/resources/v2.1_hydrofabric/geopackages/test_data/{geopackage_name}")
     weights,_ = hf2ds([gpkg_path],raster,1)
     assert len(weights) > 0
 
@@ -36,7 +36,7 @@ def test_multiple_parquet_v21():
     # assert len(weights) > 0
 
 def test_multiple_gpkg_v21():
-    os.system(f"curl -o {gpkg_path} -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/{geopackage_name}")
+    os.system(f"curl -o {gpkg_path} -L -O https://ciroh-community-ngen-datastream.s3.amazonaws.com/resources/v2.1_hydrofabric/geopackages/test_data/{geopackage_name}")
     weights,_ = hf2ds([gpkg_path,gpkg_path],raster,1)
     assert len(weights) > 0
 
@@ -51,7 +51,7 @@ def test_multiple_multiprocess_parquet_v21():
     # assert len(weights) > 0
 
 def test_multiple_multiprocess_gpkg_v21():
-    os.system(f"curl -o {gpkg_path} -L -O https://ngen-datastream.s3.us-east-2.amazonaws.com/{geopackage_name}")
+    os.system(f"curl -o {gpkg_path} -L -O https://ciroh-community-ngen-datastream.s3.amazonaws.com/resources/v2.1_hydrofabric/geopackages/test_data/{geopackage_name}")
     weights,_ = multiprocess_hf2ds([gpkg_path,gpkg_path],raster,2)
     assert len(weights) > 0
 
