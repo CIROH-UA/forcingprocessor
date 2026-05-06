@@ -24,6 +24,61 @@ from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_r
 
 B2MB = 1048576
 
+# Issue 9 metadata helpers: VPU-aware metadata for multi-gpkg / multi-weight runs
+def infer_vpu_id(path):
+    """
+    Infer a VPU id from a geopackage or weights filename.
+    Falls back to the file stem if no VPU-like token is found.
+    """
+    name = Path(str(path)).stem
+
+    patterns = [
+        r"VPU[_-]?([A-Za-z0-9]+)",
+        r"vpu[_-]?([A-Za-z0-9]+)",
+        r"VPU([A-Za-z0-9]+)",
+        r"vpu([A-Za-z0-9]+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, name)
+        if match:
+            return match.group(1)
+
+    return name
+
+def read_gpkg_catchments(gpkg_path):
+    """
+    Read catchment/divide ids from a NextGen hydrofabric geopackage.
+    Tries common layer names first and falls back to the default layer.
+    """
+    candidate_layers = ["divides", "divide", "catchments"]
+    last_error = None
+
+    for layer in candidate_layers:
+        try:
+            gdf = gpd.read_file(gpkg_path, layer=layer)
+            break
+        except Exception as exc:
+            last_error = exc
+    else:
+        try:
+            gdf = gpd.read_file(gpkg_path)
+        except Exception:
+            raise last_error
+
+    if "id" in gdf.columns:
+        return gdf["id"].astype(str).to_list()
+
+    for candidate_col in ["divide_id", "catchment_id", "feature_id"]:
+        if candidate_col in gdf.columns:
+            return gdf[candidate_col].astype(str).to_list()
+
+    raise ValueError(
+        f"Could not find a catchment id column in {gpkg_path}. "
+        "Expected one of: id, divide_id, catchment_id, feature_id."
+    )
+
+
 def distribute_work(items,nprocs):
     """
     Distribute items evenly between processes, round robin
@@ -260,7 +315,7 @@ def forcing_grid2catchment(nwm_files: list,
             nwm_file_sizes_MB.append(len(response.content) / B2MB)
         else:
             file_obj = nwm_file
-            nwm_file_sizes_MB = os.path.getsize(nwm_file / B2MB)
+            nwm_file_sizes_MB.append(os.path.getsize(nwm_file) / B2MB)        
 
         topen += time.perf_counter() - t0
         t0 = time.perf_counter()
@@ -270,7 +325,7 @@ def forcing_grid2catchment(nwm_files: list,
             shp = nwm_data["U2D"].shape
             data_allvars = np.zeros(shape=(nvar, dy, dx), dtype=np.float64)
             for var_dx, jvar in enumerate(nwm_variables):
-                if "retrospective-2-1" in nwm_file:
+                if "retrospective-2-1" in nwm_file or ("south_north" in nwm_data.dims and "west_east" in nwm_data.dims):
                     data_allvars[var_dx, :, :] = np.flip(np.squeeze(nwm_data[jvar].isel(west_east=slice(x_min, x_max+1), south_north=slice(shp[1] - (y_max+1), shp[1] - y_min)).values),axis=0)
                     t = datetime.strftime(datetime.strptime(nwm_file.split('/')[-1].split('.')[0],'%Y%m%d%H'),'%Y-%m-%d %H:%M:%S')
                 else:
@@ -790,6 +845,20 @@ def prep_ngen_data(conf):
     if type(gpkg_file) is not list: gpkg_files = [gpkg_file]
     else: gpkg_files = gpkg_file
 
+    # Issue 9: optional explicit VPU ids for multi-gpkg / multi-weight runs.
+    # If forcing.vpu_id is not supplied, infer ids from filenames.
+    vpu_ids = conf["forcing"].get("vpu_id", None)
+
+    if vpu_ids is None:
+        vpu_ids = [infer_vpu_id(x) for x in gpkg_files]
+    elif type(vpu_ids) is not list:
+        vpu_ids = [vpu_ids]
+
+    vpu_ids = [str(x) for x in vpu_ids]
+
+    assert len(vpu_ids) == len(gpkg_files),         "Length of forcing.vpu_id must match length of forcing.gpkg_file"
+
+
     map_file_path = conf['forcing'].get("map_file",None)
     restart_map_file_path = conf['forcing'].get("restart_map_file", None)
     crosswalk_file_path = conf['forcing'].get("crosswalk_file", None)
@@ -891,6 +960,25 @@ def prep_ngen_data(conf):
         if ii_verbose: print(f'Obtaining weights\n',flush=True)
         global weights_df
         weights_df, jcatchment_dict = multiprocess_hf2ds(gpkg_files,nwm_forcing_files[0],nprocs)
+
+        # Issue 9: build a VPU -> catchments map used later for VPU-delineated metadata.
+        vpu_catchment_map = {}
+        jcatchment_values = list(jcatchment_dict.values())
+
+        for i, (vpu_id, gpkg) in enumerate(zip(vpu_ids, gpkg_files)):
+            if str(gpkg).endswith(".parquet"):
+                # Prefer exact VPU key if the weights pipeline preserved it.
+                if vpu_id in jcatchment_dict:
+                    vpu_catchment_map[vpu_id] = list(jcatchment_dict[vpu_id])
+                # Otherwise fall back to positional mapping.
+                elif i < len(jcatchment_values):
+                    vpu_catchment_map[vpu_id] = list(jcatchment_values[i])
+                else:
+                    vpu_catchment_map[vpu_id] = []
+            else:
+                vpu_catchment_map[vpu_id] = read_gpkg_catchments(gpkg)
+
+
         log_time("READWEIGHTS_END", log_file)
 
         # # conus hack
@@ -1266,6 +1354,97 @@ def prep_ngen_data(conf):
         else:
             local_metapath = metaf_path
 
+        # Issue 9: write VPU-delineated metadata.
+        # This keeps the original global metadata.csv, and adds metadata_by_vpu.csv.
+        if data_source == "forcings":
+            vpu_metadata_rows = []
+
+            netcdf_size_by_vpu = {}
+            if "netcdf" in output_file_type:
+                for i, jvpu in enumerate(jcatchment_dict.keys()):
+                    if i < len(netcdf_cat_file_sizes_MB):
+                        netcdf_size_by_vpu[str(jvpu)] = netcdf_cat_file_sizes_MB[i]
+
+            for i, vpu_id in enumerate(vpu_ids):
+                vpu_catchments = vpu_catchment_map.get(vpu_id, [])
+
+                if vpu_id in netcdf_size_by_vpu:
+                    vpu_netcdf_size = netcdf_size_by_vpu[vpu_id]
+                elif "netcdf" in output_file_type and i < len(netcdf_cat_file_sizes_MB):
+                    vpu_netcdf_size = netcdf_cat_file_sizes_MB[i]
+                else:
+                    vpu_netcdf_size = 0
+
+                vpu_metadata_rows.append({
+                    "vpu_id": vpu_id,
+                    "gpkg_file": str(gpkg_files[i]),
+                    "ncatchments": len(vpu_catchments),
+                    "nwmfiles_input": len(nwm_forcing_files),
+                    "nvars_input": len(nwm_variables),
+                    "nvars_output": len(ngen_variables),
+                    "runtime_s": round(runtime, 2),
+                    "nwm_file_size_avg_MB": nwm_file_size_avg,
+                    "nwm_file_size_med_MB": nwm_file_size_med,
+                    "nwm_file_size_std_MB": nwm_file_size_std,
+                    "netcdf_file_size_MB": vpu_netcdf_size,
+                })
+
+            vpu_metadata_df = pd.DataFrame(vpu_metadata_rows)
+
+            write_df(
+                vpu_metadata_df,
+                "metadata_by_vpu.csv",
+                storage_type,
+                data_source_arg="na",
+                local_path=local_metapath,
+                key_prefix=meta_key,
+                bucket=meta_bucket,
+                client=s3
+            )
+
+            # Also provide catchment-level stats with a VPU column for NRDS-style QA.
+            catchment_to_vpu = {}
+            for jvpu, jcats in vpu_catchment_map.items():
+                for jcat in jcats:
+                    catchment_to_vpu[str(jcat).replace("cat-", "")] = jvpu
+
+            if not avg_df.empty and "catchment id" in avg_df.columns:
+                avg_by_vpu_df = avg_df.copy()
+                avg_by_vpu_df.insert(
+                    0,
+                    "vpu_id",
+                    avg_by_vpu_df["catchment id"].astype(str).map(catchment_to_vpu).fillna("")
+                )
+                write_df(
+                    avg_by_vpu_df,
+                    "catchments_avg_by_vpu.csv",
+                    storage_type,
+                    data_source_arg="na",
+                    local_path=local_metapath,
+                    key_prefix=meta_key,
+                    bucket=meta_bucket,
+                    client=s3
+                )
+
+            if not med_df.empty and "catchment id" in med_df.columns:
+                med_by_vpu_df = med_df.copy()
+                med_by_vpu_df.insert(
+                    0,
+                    "vpu_id",
+                    med_by_vpu_df["catchment id"].astype(str).map(catchment_to_vpu).fillna("")
+                )
+                write_df(
+                    med_by_vpu_df,
+                    "catchments_median_by_vpu.csv",
+                    storage_type,
+                    data_source_arg="na",
+                    local_path=local_metapath,
+                    key_prefix=meta_key,
+                    bucket=meta_bucket,
+                    client=s3
+                )
+
+            
         write_df(metadata_df, "metadata.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
         if not avg_df.empty:
             write_df(avg_df, "catchments_avg.csv", storage_type, data_source_arg="na", local_path=local_metapath, key_prefix=meta_key, bucket=meta_bucket, client=s3)
