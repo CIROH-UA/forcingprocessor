@@ -17,6 +17,18 @@ uv venv
 ```
 uv pip install -r pyproject.toml
 ```
+## Install ForcingProcessor as a Module
+
+```bash
+uv pip install -e .
+```
+
+This is required for running:
+
+```bash
+python -m forcingprocessor.processor <config_file>
+```
+
 ## Create Output Directory
 ```
 mkdir -p data/forcing
