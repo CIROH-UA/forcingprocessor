@@ -23,12 +23,6 @@ uv pip install -r pyproject.toml
 uv pip install -e .
 ```
 
-This is required for running:
-
-```bash
-python -m forcingprocessor.processor <config_file>
-```
-
 ## Create Output Directory
 ```
 mkdir -p data/forcing
