@@ -25,58 +25,31 @@ from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_r
 B2MB = 1048576
 
 # Issue 9 metadata helpers: VPU-aware metadata for multi-gpkg / multi-weight runs
-def infer_vpu_id(path):
+def normalize_vpu_id(value):
     """
-    Infer a VPU id from a geopackage or weights filename.
-    Falls back to the file stem if no VPU-like token is found.
+    Normalize a VPU identifier to the standard VPU_XX format.
+
+    Examples:
+        03W -> VPU_03W
+        vpu_03w -> VPU_03W
+        nextgen_VPU_03W.gpkg -> VPU_03W
     """
-    name = Path(str(path)).stem
+    name = Path(str(value)).stem
 
-    patterns = [
-        r"VPU[_-]?([A-Za-z0-9]+)",
-        r"vpu[_-]?([A-Za-z0-9]+)",
-        r"VPU([A-Za-z0-9]+)",
-        r"vpu([A-Za-z0-9]+)",
-    ]
+    match = re.search(r"(?i)vpu[-_]?(\d{2}[A-Z]?)", name)
+    if match:
+        return f"VPU_{match.group(1).upper()}"
 
-    for pattern in patterns:
-        match = re.search(pattern, name)
-        if match:
-            return match.group(1)
+    if re.fullmatch(r"\d{2}[A-Za-z]?", name):
+        return f"VPU_{name.upper()}"
 
     return name
 
-def read_gpkg_catchments(gpkg_path):
-    """
-    Read catchment/divide ids from a NextGen hydrofabric geopackage.
-    Tries common layer names first and falls back to the default layer.
-    """
-    candidate_layers = ["divides", "divide", "catchments"]
-    last_error = None
 
-    for layer in candidate_layers:
-        try:
-            gdf = gpd.read_file(gpkg_path, layer=layer)
-            break
-        except Exception as exc:
-            last_error = exc
-    else:
-        try:
-            gdf = gpd.read_file(gpkg_path)
-        except Exception:
-            raise last_error
+def infer_vpu_id(path):
+    """Infer and normalize a VPU identifier from an input path."""
+    return normalize_vpu_id(path)
 
-    if "id" in gdf.columns:
-        return gdf["id"].astype(str).to_list()
-
-    for candidate_col in ["divide_id", "catchment_id", "feature_id"]:
-        if candidate_col in gdf.columns:
-            return gdf[candidate_col].astype(str).to_list()
-
-    raise ValueError(
-        f"Could not find a catchment id column in {gpkg_path}. "
-        "Expected one of: id, divide_id, catchment_id, feature_id."
-    )
 
 
 def distribute_work(items,nprocs):
@@ -854,10 +827,11 @@ def prep_ngen_data(conf):
     elif type(vpu_ids) is not list:
         vpu_ids = [vpu_ids]
 
-    vpu_ids = [str(x) for x in vpu_ids]
+    vpu_ids = [normalize_vpu_id(x) for x in vpu_ids]
 
-    assert len(vpu_ids) == len(gpkg_files),         "Length of forcing.vpu_id must match length of forcing.gpkg_file"
-
+    assert len(vpu_ids) == len(gpkg_files), (
+        "Length of forcing.vpu_id must match length of forcing.gpkg_file"
+)
 
     map_file_path = conf['forcing'].get("map_file",None)
     restart_map_file_path = conf['forcing'].get("restart_map_file", None)
@@ -961,22 +935,19 @@ def prep_ngen_data(conf):
         global weights_df
         weights_df, jcatchment_dict = multiprocess_hf2ds(gpkg_files,nwm_forcing_files[0],nprocs)
 
-        # Issue 9: build a VPU -> catchments map used later for VPU-delineated metadata.
+        # Issue 9: build VPU -> catchments mapping from the weights pipeline output.
+        # Avoid reopening GeoPackages solely to retrieve catchment IDs.
         vpu_catchment_map = {}
         jcatchment_values = list(jcatchment_dict.values())
 
-        for i, (vpu_id, gpkg) in enumerate(zip(vpu_ids, gpkg_files)):
-            if str(gpkg).endswith(".parquet"):
-                # Prefer exact VPU key if the weights pipeline preserved it.
-                if vpu_id in jcatchment_dict:
-                    vpu_catchment_map[vpu_id] = list(jcatchment_dict[vpu_id])
-                # Otherwise fall back to positional mapping.
-                elif i < len(jcatchment_values):
-                    vpu_catchment_map[vpu_id] = list(jcatchment_values[i])
-                else:
-                    vpu_catchment_map[vpu_id] = []
+        for i, vpu_id in enumerate(vpu_ids):
+            if vpu_id in jcatchment_dict:
+                vpu_catchment_map[vpu_id] = list(jcatchment_dict[vpu_id])
+            elif i < len(jcatchment_values):
+                # Positional fallback for inputs whose VPU key could not be preserved.
+                vpu_catchment_map[vpu_id] = list(jcatchment_values[i])
             else:
-                vpu_catchment_map[vpu_id] = read_gpkg_catchments(gpkg)
+                vpu_catchment_map[vpu_id] = []
 
 
         log_time("READWEIGHTS_END", log_file)
