@@ -25,9 +25,11 @@ dependencies = [
     "pyarrow",
     "pyogrio",
     "requests",
-    "s3fs",
+    "s3fs>=2026.6.0",
     "scipy",
     "xarray",
+    "fsspec>=2026.6.0",
+    "zarr<3",
 ]
 
 [project.optional-dependencies]
