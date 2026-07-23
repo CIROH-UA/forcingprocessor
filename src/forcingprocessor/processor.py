@@ -16,11 +16,16 @@ import gzip
 import tarfile, tempfile
 import s3fs
 import geopandas as gpd
+import dask.array as da
+import fsspec
 from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.utils import make_forcing_netcdf, get_window, log_time, convert_url2key, report_usage, nwm_variables, ngen_variables
 from forcingprocessor.channel_routing_tools import channelrouting_nwm2ngen, write_netcdf_chrt
 from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_restart
+
+from concurrent.futures import ThreadPoolExecutor
+
 
 B2MB = 1048576
 
@@ -72,6 +77,299 @@ def load_balance(items_per_proc,launch_delay,single_ex, exec_count):
         items_per_proc = items_per_proc[:ntasked]
     if ii_verbose: print(f'item distribution {items_per_proc}')
     return items_per_proc
+
+
+def select_forcing_backend(ncatchments: int, nfiles: int, forcing_backend: str = "auto", zarr_store: str | None = None) -> str:
+    """
+    Select the forcing extraction backend.
+
+    Existing NetCDF logic is best for large domains with relatively few forcing files.
+    Zarr is intended for small domains with many timesteps/files, where repeatedly
+    opening thousands of NetCDF files becomes the bottleneck.
+    """
+    forcing_backend = (forcing_backend or "auto").lower()
+    valid_backends = {"auto", "netcdf", "zarr"}
+    if forcing_backend not in valid_backends:
+        raise ValueError(f"forcing_backend must be one of {sorted(valid_backends)}, got {forcing_backend}")
+
+    if forcing_backend in {"netcdf", "zarr"}:
+        if forcing_backend == "zarr" and not zarr_store:
+            raise ValueError("forcing_backend='zarr' requires conf['forcing']['zarr_store']")
+        return forcing_backend
+
+    # Automatic mode: only choose zarr when a zarr store is available and the
+    # workload matches the small-domain / many-timestep case discussed upstream.
+    if zarr_store and ncatchments < 100 and nfiles > 1000:
+        return "zarr"
+
+    return "netcdf"
+
+
+def _open_zarr_dataset(zarr_store) -> xr.Dataset:
+    """Open a local, S3, GCS, or HTTPS Zarr store -- or a pre-combined
+    kerchunk reference dict (as produced by MultiZarrToZarr.translate())."""
+    if isinstance(zarr_store, list):
+        combined = build_combined_zarr_reference(zarr_store)
+        mapper = fsspec.get_mapper("reference://", fo=combined, remote_protocol="https", remote_options={})
+        return xr.open_zarr(mapper, consolidated=False)
+    
+    if isinstance(zarr_store, dict):
+        mapper = fsspec.get_mapper(
+            "reference://",
+            fo=zarr_store,
+            remote_protocol="https",
+            remote_options={},
+        )
+        return xr.open_zarr(mapper, consolidated=False)
+
+    storage_options = None
+    if zarr_store.startswith("s3://"):
+        storage_options = {"anon": True, "client_kwargs": {"region_name": "us-east-1"}}
+    elif zarr_store.startswith(("gs://", "gcs://")):
+        storage_options = {"token": "anon"}
+
+    try:
+        return xr.open_zarr(zarr_store, consolidated=False, storage_options=storage_options)
+    except TypeError:
+        return xr.open_zarr(zarr_store, consolidated=False)
+
+
+def _time_string(value) -> str:
+    """Convert numpy/pandas/python datetime-like values to forcingprocessor time strings."""
+    return pd.to_datetime(value).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _get_xy_dim_names(var_da: xr.DataArray) -> tuple[str, str]:
+    """
+    Return horizontal dimension names for NWM-like or AORC-like datasets.
+    Supports both (x, y) and (west_east, south_north) naming.
+    """
+    dims = set(var_da.dims)
+    if {"x", "y"}.issubset(dims):
+        return "x", "y"
+    if {"west_east", "south_north"}.issubset(dims):
+        return "west_east", "south_north"
+    raise ValueError(f"Could not identify x/y dimensions for variable {var_da.name}; dims={var_da.dims}")
+
+
+def _weighted_grid_to_catchments(data_allvars: np.ndarray, weights_df: pd.DataFrame, shp: tuple[int, int, int], window: list[int]) -> np.ndarray:
+    """
+    Convert gridded forcing data to catchment-level forcing data using existing
+    hydrofabric weights. This mirrors the weighting logic used by forcing_grid2catchment.
+    """
+    x_max = window[0]
+    x_min = window[1]
+    y_max = window[2]
+    y_min = window[3]
+    dx = x_max - x_min + 1
+    dy = y_max - y_min + 1
+    nvar = len(nwm_variables)
+
+    data_allvars = data_allvars.reshape(nvar, dx * dy)
+    ncatch = len(weights_df)
+    data_array = np.zeros((nvar, ncatch), dtype=np.float64)
+
+    for jcatch, row in enumerate(weights_df.itertuples()):
+        weights = row.cell_id
+        coverage = np.array(row.coverage)
+        coverage_mat = np.repeat(coverage[None, :], nvar, axis=0)
+
+        weights_dx, weights_dy = np.unravel_index(weights, (shp[2], shp[1]), order="F")
+        weights_dx_shifted = list(weights_dx - x_min)
+        weights_dy_shifted = list(weights_dy - y_min)
+        weights_window = np.ravel_multi_index(np.array([weights_dx_shifted, weights_dy_shifted]), (dx, dy), order="F")
+        jcatch_data_mask = data_allvars[:, weights_window]
+
+        weight_sum = np.sum(coverage)
+        data_array[:, jcatch] = np.sum(coverage_mat * jcatch_data_mask, axis=1) / weight_sum
+
+    return data_array
+
+
+def _zarr_weight_block_allvars(block, weights_df, shp, window):
+    """
+    Dask map_blocks worker: apply catchment weighting to a chunk of timesteps.
+
+    block shape: (time_chunk, nvar, dy, dx)
+    returns:     (time_chunk, nvar, catchment)
+    """
+    out = []
+    for jt in range(block.shape[0]):
+        catchment_values = _weighted_grid_to_catchments(
+            data_allvars=block[jt],
+            weights_df=weights_df,
+            shp=shp,
+            window=window,
+        )
+        out.append(catchment_values)
+
+    return np.asarray(out, dtype=np.float64)
+
+
+def zarr_data_extract(
+    zarr_store: str,
+    forcing_files: list[str],
+    weights_df: pd.DataFrame,
+    window: list[int],
+    ii_verbose: bool = False,
+    ii_plot: bool = False,
+    nts_plot: int = 0,
+    ngen_vars_plot: list[str] | None = None,
+):
+    """
+    Extract catchment forcings from a Zarr store using Dask for lazy, chunked reads.
+    Intended for the small-domain / many-timestep case (see select_forcing_backend).
+
+    Returns the same objects as multiprocess_data_extract():
+      data_array:        (time, forcing_variable, catchment)
+      t_ax:              list[str]
+      nwm_data_plot:     optional plot data
+      nwm_file_sizes_MB: list[float]
+    """
+    if ngen_vars_plot is None:
+        ngen_vars_plot = []
+
+    if ii_verbose:
+        print(f"Opening Zarr forcing store: {zarr_store}", flush=True)
+
+    ds = _open_zarr_dataset(zarr_store)
+
+    missing_vars = [jvar for jvar in nwm_variables if jvar not in ds]
+    if missing_vars:
+        raise ValueError(
+            "Zarr store does not contain the expected forcing variables. "
+            f"Missing: {missing_vars}. Available variables include: {list(ds.data_vars)[:20]}"
+        )
+
+    first_var = ds[nwm_variables[0]]
+    x_dim, y_dim = _get_xy_dim_names(first_var)
+
+    if "time" not in first_var.dims:
+        raise ValueError(
+            f"Zarr variable {nwm_variables[0]} has no 'time' dimension; "
+            f"dims={first_var.dims}"
+        )
+
+    time_dim = "time"
+    ntime_available = ds.sizes[time_dim]
+
+    if forcing_files:
+        nt = min(len(forcing_files), ntime_available)
+        if len(forcing_files) > ntime_available:
+            raise ValueError(
+                f"The filename list requests {len(forcing_files)} timesteps, "
+                f"but the Zarr store only has {ntime_available}."
+            )
+    else:
+        nt = ntime_available
+
+    x_max, x_min, y_max, y_min = window
+    dx = x_max - x_min + 1
+    dy = y_max - y_min + 1
+    nvar = len(nwm_variables)
+
+    x_size = ds.sizes[x_dim]
+    y_size = ds.sizes[y_dim]
+    shp = (nt, y_size, x_size)
+
+    if "time" in ds.coords:
+        time_values = ds[time_dim].values[:nt]
+    else:
+        time_values = np.arange(nt)
+
+    t_ax = []
+    for jt in range(nt):
+        try:
+            t_ax.append(_time_string(time_values[jt]))
+        except Exception:
+            t_ax.append(str(time_values[jt]))
+
+    nwm_file_sizes_MB = [0.0 for _ in range(nt)]
+
+    # --------------------------------------------------
+    # Main Dask-backed extraction
+    # --------------------------------------------------
+
+    var_arrays = []
+
+    for jvar in nwm_variables:
+        if ii_verbose:
+            print(f"Preparing Zarr variable with Dask: {jvar}", flush=True)
+
+        da_var = ds[jvar].isel({time_dim: slice(0, nt)})
+
+        da_window = da_var.isel(
+            {
+                x_dim: slice(x_min, x_max + 1),
+                y_dim: slice(y_size - (y_max + 1), y_size - y_min),
+            }
+        )
+
+        da_window = da_window.transpose(time_dim, y_dim, x_dim)
+
+        # Match old behavior: flip y-axis
+        arr = da_window.data[:, ::-1, :]
+
+        var_arrays.append(arr)
+
+    # stacked shape: (variable, time, dy, dx)
+    stacked = da.stack(var_arrays, axis=0)
+
+    # reorder to: (time, variable, dy, dx)
+    stacked = stacked.transpose(1, 0, 2, 3)
+
+    stacked = stacked.rechunk({
+        1: nvar,   # keep all forcing variables in one block
+        2: dy,
+        3: dx,
+    })
+
+    ncatchments = len(weights_df)
+
+    data_array = da.map_blocks(
+        _zarr_weight_block_allvars,
+        stacked,
+        weights_df,
+        shp,
+        window,
+        dtype=np.float64,
+        chunks=(stacked.chunks[0], (nvar,), (ncatchments,)),
+        drop_axis=[2, 3],
+        new_axis=[2],
+    ).compute()
+
+    # --------------------------------------------------
+    # Optional plotting data
+    # --------------------------------------------------
+    nwm_data_plot = []
+
+    if ii_plot and nts_plot > 0:
+        jplot_vars = [
+            var for var in ngen_vars_plot if var in nwm_variables
+        ]
+
+        for jt in range(min(nt, nts_plot)):
+            plot_t = []
+
+            for jvar in jplot_vars:
+                da_window = ds[jvar].isel(
+                    {
+                        time_dim: jt,
+                        x_dim: slice(x_min, x_max + 1),
+                        y_dim: slice(y_size - (y_max + 1), y_size - y_min),
+                    }
+                )
+
+                plot_t.append(
+                    np.flip(np.squeeze(da_window.values), axis=0)
+                )
+
+            nwm_data_plot.append(np.array(plot_t))
+
+    return data_array, t_ax, np.array(nwm_data_plot), nwm_file_sizes_MB
+
+
+
 
 def multiprocess_data_extract(files : list, nprocs : int, weights_df : pd.DataFrame, fs):
     """
@@ -311,6 +609,8 @@ def forcing_grid2catchment(nwm_files: list,
 
     if ii_verbose: print(f'Process #{id} completed data extraction, returning data to primary process',flush=True)
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
+
+
 
 def multiprocess_write_df(data,t_ax,catchments,nprocs,out_path,data_source_type):
     """
@@ -765,6 +1065,28 @@ def write_df(df:pd.DataFrame, filename:str, storage_type:str, data_source_arg:st
     else:
         raise ValueError("Only CSV and Parquet output is supported by write_df")
 
+
+
+def build_combined_zarr_reference(
+    kerchunk_json_urls: list[str],
+    remote_protocol: str = "https",
+    max_workers: int = 16,
+) -> dict:
+    from kerchunk.combine import MultiZarrToZarr  # lazy import: only needed here
+
+    fs = fsspec.filesystem(remote_protocol)
+
+    def _load_ref(url):
+        with fs.open(url, "r") as fh:
+            return json.load(fh)
+
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        refs = list(pool.map(_load_ref, kerchunk_json_urls))
+
+    mzz = MultiZarrToZarr(refs, concat_dims=["time"], remote_protocol=remote_protocol, remote_options={})
+    return mzz.translate()
+
+
 def prep_ngen_data(conf):
     """
     Primary function to retrieve forcing data and convert it into files that can be ingested into ngen.
@@ -786,6 +1108,8 @@ def prep_ngen_data(conf):
 
     gpkg_file = conf['forcing'].get("gpkg_file",None)
     nwm_file = conf['forcing'].get("nwm_file","")
+    forcing_backend_requested = conf["forcing"].get("forcing_backend", "auto")
+    zarr_store = conf["forcing"].get("zarr_store", None)
 
     if type(gpkg_file) is not list: gpkg_files = [gpkg_file]
     else: gpkg_files = gpkg_file
@@ -903,6 +1227,17 @@ def prep_ngen_data(conf):
 
         log_time("CALC_WINDOW_START", log_file)
         ncatchments = len(weights_df)
+
+
+        forcing_backend = select_forcing_backend(
+                ncatchments=ncatchments,
+                nfiles=nfiles,
+                forcing_backend=forcing_backend_requested,
+                zarr_store=zarr_store,
+        )
+        if ii_verbose:
+            print(f"Selected forcing backend: {forcing_backend}", flush=True)
+
         global window
         x_min, x_max, y_min, y_max = get_window(weights_df)
         window = [x_max, x_min, y_max, y_min]
@@ -1016,7 +1351,8 @@ def prep_ngen_data(conf):
 
     # Determine the file system type based on the first NWM forcing file
     global fs_type
-    if 's3://' in nwm_forcing_files[0] in nwm_forcing_files[0]:
+    # if 's3://' in nwm_forcing_files[0] in nwm_forcing_files[0]:
+    if "s3://" in nwm_forcing_files[0]:
         fs = s3fs.S3FileSystem(
             anon=True,
             client_kwargs={'region_name': 'us-east-1'}
@@ -1041,12 +1377,34 @@ def prep_ngen_data(conf):
     # data_array=data_array[0][None,:]
     # t_ax = t_ax
     # nwm_data=nwm_data[0][None,:]
+
     if data_source == "forcings" or data_source == "channel_routing":
         if data_source == "forcings":
-            data_array, t_ax, nwm_data, nwm_file_sizes_MB = multiprocess_data_extract(nwm_forcing_files,nprocs,weights_df,fs)
+            if forcing_backend == "zarr":
+                data_array, t_ax, nwm_data, nwm_file_sizes_MB = zarr_data_extract(
+                    zarr_store=zarr_store,
+                    forcing_files=nwm_forcing_files,
+                    weights_df=weights_df,
+                    window=window,
+                    ii_verbose=ii_verbose,
+                    ii_plot=ii_plot,
+                    nts_plot=nts_plot,
+                    ngen_vars_plot=ngen_vars_plot,
+                )
+            else:
+                data_array, t_ax, nwm_data, nwm_file_sizes_MB = multiprocess_data_extract(
+                    nwm_forcing_files,
+                    nprocs,
+                    weights_df,
+                    fs,
+                )
         else:
             data_array, t_ax, nwm_file_sizes_MB = multiprocess_chrt_extract(
-                nwm_forcing_files,nprocs,nwm_ngen_map,fs)
+                nwm_forcing_files,
+                nprocs,
+                nwm_ngen_map,
+                fs,
+            )
 
         if datetime.strptime(t_ax[0],'%Y-%m-%d %H:%M:%S') > datetime.strptime(t_ax[-1],'%Y-%m-%d %H:%M:%S'):
             # Hack to ensure data is always written out with time moving forward.
@@ -1313,6 +1671,9 @@ def prep_ngen_data(conf):
             )
     else:
         os.system(f"mv ./profile_fp.txt {metaf_path}")
+
+
+
 
 def main():
     parser = argparse.ArgumentParser()
