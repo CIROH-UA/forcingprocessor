@@ -7,6 +7,29 @@ import xarray as xr
 import numpy as np
 gpd.options.io_engine = "pyogrio" 
 
+
+def infer_vpu_id(path):
+    """
+    Infer the VPU key from a geopackage, weights parquet, or JSON filename.
+
+    This returns keys in the same format used by processor.py and the NetCDF
+    writer, for example: VPU_03W. If no VPU pattern is found, the file stem is
+    used as a stable fallback.
+    """
+    name = os.path.splitext(os.path.basename(str(path)))[0]
+
+    patterns = [
+        r"(?i)vpu[-_]?([0-9]{2}[A-Z]?)",
+        r"(?i)vpu[-_]?([A-Za-z0-9]+)",
+    ]
+
+    for pattern in patterns:
+        match = re.search(pattern, name)
+        if match:
+            return f"VPU_{match.group(1).upper()}"
+
+    return name
+
 def rastersourceNexactextract(raster_data,geo_data):
     from exactextract import exact_extract
     from exactextract.raster import NumPyRasterSource
@@ -153,12 +176,11 @@ def hf2ds(files : list, raster : str, nf):
     count = 0
     weights_dfs = []
     for jgpkg in files:
-        pattern = r"(?i)vpu[-_](\d{2}[A-Z]?)"
-        match = re.search(pattern, jgpkg)
-        if match: jname = "VPU_" + match.group(1)
-        else:
-            count +=1
-            jname = str(count)    
+        jname = infer_vpu_id(jgpkg)
+        if jname in jcatchment_dict:
+            count += 1
+            jname = f"{jname}_{count}"
+
         jweights_df = hydrofabric2datastream_weights(jgpkg,raster,nf)
         weights_dfs.append(jweights_df)
         jcatchment_dict[jname] = list(jweights_df.index)
@@ -182,6 +204,8 @@ def hydrofabric2datastream_weights(weights_file : str, raster_template: str, nf 
     # Need to handle each situation. 
 
     t0 = time.perf_counter()    
+
+    weights_file = str(weights_file)
 
     if weights_file.endswith('.json'):
         with open(weights_file,'r') as fp:
@@ -213,9 +237,11 @@ def hydrofabric2datastream_weights(weights_file : str, raster_template: str, nf 
             weights_df = weights_df.rename(columns={"coverage_fraction":"coverage"})
             ncatchment = len(weights_df) 
 
+    ncatchment = len(weights_df)
     tf = time.perf_counter()
     dt = tf - t0
-    print(f'{weights_file} {ncatchment} catchment weights obtained {dt:.2f} seconds total, {ncatchment/dt:.2f} catchments/second',flush=True)
+    rate = ncatchment / dt if dt > 0 else float("inf")
+    print(f'{weights_file} {ncatchment} catchment weights obtained {dt:.2f} seconds total, {rate:.2f} catchments/second',flush=True)
     return weights_df
 
 if __name__ == "__main__":
@@ -231,3 +257,4 @@ if __name__ == "__main__":
     weights, jcatchments = hf2ds([args.input_file],raster_template,1)
     weights.to_parquet(args.outname)
     
+
