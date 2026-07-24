@@ -160,11 +160,22 @@ def multiprocess_hf2ds(files : list,raster_template : str, max_procs : int):
 
     weights_df = pd.concat(weight_dfs)
 
-    print(f'Processes have returned',flush=True)
+    print("Processes have returned", flush=True)
+
     jcatchment_dict = {}
-    [jcatchment_dict.update(x) for x in jcatchment_dicts]
-  
-    return weights_df, jcatchment_dict  
+
+    for process_dict in jcatchment_dicts:
+        for key, catchments in process_dict.items():
+            unique_key = key
+            suffix = 1
+
+            while unique_key in jcatchment_dict:
+                unique_key = f"{key}_{suffix}"
+                suffix += 1
+
+            jcatchment_dict[unique_key] = catchments
+
+    return weights_df, jcatchment_dict 
 
 
 def hf2ds(files : list, raster : str, nf):

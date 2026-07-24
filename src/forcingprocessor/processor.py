@@ -829,9 +829,10 @@ def prep_ngen_data(conf):
 
     vpu_ids = [normalize_vpu_id(x) for x in vpu_ids]
 
-    assert len(vpu_ids) == len(gpkg_files), (
-        "Length of forcing.vpu_id must match length of forcing.gpkg_file"
-)
+    if len(vpu_ids) != len(gpkg_files):
+        raise ValueError(
+            "Length of forcing.vpu_id must match length of forcing.gpkg_file"
+        )
 
     map_file_path = conf['forcing'].get("map_file",None)
     restart_map_file_path = conf['forcing'].get("restart_map_file", None)
