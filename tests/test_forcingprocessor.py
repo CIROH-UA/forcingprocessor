@@ -5,6 +5,7 @@ from forcingprocessor.processor import prep_ngen_data
 from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
 import pytest
 import re
+import pandas as pd
 
 HF_VERSION="v2.2"
 date = datetime.now(timezone.utc)
@@ -320,5 +321,26 @@ def test_netcdf_output_type(download_weight_file,clean_forcings_metadata_dirs):
     assert assert_file.exists()
     os.remove(assert_file)       
 
-
+def test_vpu_metadata_output(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
+    nwmurl_conf["urlbaseinput"] = 1
+    generate_nwmfiles(nwmurl_conf)
+    conf["run"]["collect_stats"] = True
+    prep_ngen_data(conf)
+    conf["run"]["collect_stats"] = False
+    netcdf_file = (
+        data_dir
+        / "forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
+    assert netcdf_file.exists()
+    metadata_file = (
+        data_dir
+        / "metadata/forcings_metadata/metadata_by_vpu.csv"
+    ).resolve()
+    assert metadata_file.exists()
+    metadata_df = pd.read_csv(metadata_file)
+    assert "vpu_id" in metadata_df.columns
+    assert "VPU_09" in metadata_df["vpu_id"].values
+    os.remove(netcdf_file)
     
