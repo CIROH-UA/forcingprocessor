@@ -6,185 +6,217 @@ from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
 import pytest
 import re
 
-HF_VERSION="v2.2"
+HF_VERSION = "v2.2"
 date = datetime.now(timezone.utc)
-date = date.strftime('%Y%m%d')
-hourminute  = '0000'
+date = date.strftime("%Y%m%d")
+hourminute = "0000"
 TODAY_START = date + hourminute
 yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
-yesterday = yesterday.strftime('%Y%m%d')
+yesterday = yesterday.strftime("%Y%m%d")
 test_dir = Path(__file__).parent
-data_dir = (test_dir/'data').resolve()
-forcings_dir = (data_dir/'forcings').resolve()
-pwd      = Path.cwd()
+data_dir = (test_dir / "data").resolve()
+forcings_dir = (data_dir / "forcings").resolve()
+pwd = Path.cwd()
 if os.path.exists(data_dir):
     os.system(f"rm -rf {data_dir}")
 os.system(f"mkdir {data_dir}")
-filenamelist = str((pwd/"filenamelist.txt").resolve())
-retro_filenamelist = str((pwd/"retro_filenamelist.txt").resolve())
+filenamelist = str((pwd / "filenamelist.txt").resolve())
+retro_filenamelist = str((pwd / "retro_filenamelist.txt").resolve())
 weights_name = "nextgen_VPU_09_weights.json"
-assert_file=(data_dir/f"forcings/VPU_09_forcings.nc").resolve()
+assert_file = (data_dir / f"forcings/VPU_09_forcings.nc").resolve()
 
 conf = {
-    "forcing"  : {
-        "nwm_file"   : filenamelist,
-        "gpkg_file"  : str(f"{data_dir}/{weights_name}")
+    "forcing": {
+        "nwm_file": filenamelist,
+        "gpkg_file": str(f"{data_dir}/{weights_name}"),
     },
-
-    "storage":{
-        "storage_type"      : "local",
-        "output_path"       : str(data_dir),
-        "output_file_type"  : ["netcdf"]
-    },    
-
-    "run" : {
-        "verbose"       : False,
-        "collect_stats" : False,
-        "nprocs"         : 1
-    }
-    }
+    "storage": {
+        "storage_type": "local",
+        "output_path": str(data_dir),
+        "output_file_type": ["netcdf"],
+    },
+    "run": {"verbose": False, "collect_stats": False, "nprocs": 1},
+}
 
 nwmurl_conf = {
-        "forcing_type" : "operational_archive",
-        "start_date"   : "",
-        "end_date"     : "",
-        "runinput"     : 1,
-        "varinput"     : 5,
-        "geoinput"     : 1,
-        "meminput"     : 0,
-        "urlbaseinput" : 7,
-        "fcst_cycle"   : [0],
-        "lead_time"    : [1]
-    }
+    "forcing_type": "operational_archive",
+    "start_date": "",
+    "end_date": "",
+    "runinput": 1,
+    "varinput": 5,
+    "geoinput": 1,
+    "meminput": 0,
+    "urlbaseinput": 7,
+    "fcst_cycle": [0],
+    "lead_time": [1],
+}
 
 nwmurl_conf_retro = {
-        "forcing_type" : "retrospective",
-        "start_date"   : "201801010000",
-        "end_date"     : "201801010000",
-        "urlbaseinput" : 1,
-        "selected_object_type" : [1],
-        "selected_var_types"   : [6],
-        "write_to_file" : True
-    }
+    "forcing_type": "retrospective",
+    "start_date": "201801010000",
+    "end_date": "201801010000",
+    "urlbaseinput": 1,
+    "selected_object_type": [1],
+    "selected_var_types": [6],
+    "write_to_file": True,
+}
+
 
 @pytest.fixture
 def clean_dir(autouse=True):
     if os.path.exists(forcings_dir):
-        os.system(f'rm -rf {str(forcings_dir)}')
+        os.system(f"rm -rf {str(forcings_dir)}")
 
-def test_nomads_prod(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START    
+
+def test_nomads_prod(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 1
-    generate_nwmfiles(nwmurl_conf)  
-    conf['run']['collect_stats'] = True # test metadata generation once
+    generate_nwmfiles(nwmurl_conf)
+    conf["run"]["collect_stats"] = True  # test metadata generation once
     prep_ngen_data(conf)
-    conf['run']['collect_stats'] = False
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    conf["run"]["collect_stats"] = False
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)       
+    os.remove(assert_file)
+
 
 # def test_nomads_post_processed(download_weight_file,clean_forcings_metadata_dirs):
 #     assert False, f'test_nomads_post_processed() is BROKEN - https://github.com/CIROH-UA/nwmurl/issues/62'
 #     nwmurl_conf['start_date'] = "202408240000"
 #     nwmurl_conf['end_date']   = "202408241700"
 #     nwmurl_conf["urlbaseinput"] = 2
-#     generate_nwmfiles(nwmurl_conf)          
+#     generate_nwmfiles(nwmurl_conf)
 #     prep_ngen_data(conf)
 #     assert assert_file.exists()
-#     os.remove(assert_file)    
+#     os.remove(assert_file)
 
-def test_nwm_google_apis(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START    
+
+def test_nwm_google_apis(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 3
-    generate_nwmfiles(nwmurl_conf)          
+    generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)       
+    os.remove(assert_file)
 
-def test_google_cloud_storage(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = "202407100100"
-    nwmurl_conf['end_date']   = "202407100100" 
+
+def test_google_cloud_storage(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = "202407100100"
+    nwmurl_conf["end_date"] = "202407100100"
     nwmurl_conf["urlbaseinput"] = 4
-    generate_nwmfiles(nwmurl_conf)          
+    generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)       
+    os.remove(assert_file)
 
-def test_gs(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START    
+
+def test_gs(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 5
-    generate_nwmfiles(nwmurl_conf)   
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()       
+    generate_nwmfiles(nwmurl_conf)
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     prep_ngen_data(conf)
     assert assert_file.exists()
-    os.remove(assert_file)       
+    os.remove(assert_file)
 
-def test_gcs(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = "202407100100"
-    nwmurl_conf['end_date']   = "202407100100" 
+
+def test_gcs(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = "202407100100"
+    nwmurl_conf["end_date"] = "202407100100"
     nwmurl_conf["urlbaseinput"] = 6
-    generate_nwmfiles(nwmurl_conf)          
+    generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)         
+    os.remove(assert_file)
 
-def test_noaa_nwm_pds_https(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START    
+
+def test_noaa_nwm_pds_https(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 7
-    generate_nwmfiles(nwmurl_conf)          
+    generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)     
+    os.remove(assert_file)
 
-def test_noaa_nwm_pds_https_short_range(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START    
+
+def test_noaa_nwm_pds_https_short_range(
+    download_weight_file, clean_forcings_metadata_dirs
+):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 7
     nwmurl_conf["runinput"] = 1
-    generate_nwmfiles(nwmurl_conf)          
+    generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file) 
+    os.remove(assert_file)
 
-def test_noaa_nwm_pds_https_medium_range(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START    
+
+def test_noaa_nwm_pds_https_medium_range(
+    download_weight_file, clean_forcings_metadata_dirs
+):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 7
     nwmurl_conf["runinput"] = 2
-    generate_nwmfiles(nwmurl_conf)          
+    generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.medium_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.medium_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)         
+    os.remove(assert_file)
 
-def test_noaa_nwm_pds_https_analysis_assim(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START    
+
+def test_noaa_nwm_pds_https_analysis_assim(
+    download_weight_file, clean_forcings_metadata_dirs
+):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 7
     nwmurl_conf["runinput"] = 5
-    generate_nwmfiles(nwmurl_conf)          
+    generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.analysis_assim.forcing.tm01_tm01.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.analysis_assim.forcing.tm01_tm01.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)  
+    os.remove(assert_file)
 
-def test_noaa_nwm_pds_https_analysis_assim_extend(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = yesterday + hourminute
-    nwmurl_conf['end_date']   = yesterday + hourminute    
+
+def test_noaa_nwm_pds_https_analysis_assim_extend(
+    download_weight_file, clean_forcings_metadata_dirs
+):
+    nwmurl_conf["start_date"] = yesterday + hourminute
+    nwmurl_conf["end_date"] = yesterday + hourminute
     nwmurl_conf["urlbaseinput"] = 7
     nwmurl_conf["runinput"] = 6
     nwmurl_conf["fcst_cycle"] = [16]
-    generate_nwmfiles(nwmurl_conf)       
-    try:   
+    generate_nwmfiles(nwmurl_conf)
+    try:
         prep_ngen_data(conf)
     except Exception as e:
         pattern = r"https://noaa-nwm-pds\.s3\.amazonaws\.com/nwm\.\d{8}/forcing_analysis_assim_extend/nwm\.t16z\.analysis_assim_extend\.forcing\.tm01\.conus\.nc does not exist"
@@ -192,49 +224,59 @@ def test_noaa_nwm_pds_https_analysis_assim_extend(download_weight_file,clean_for
             pytest.skip(f"Upstream datafile missing: {e}")
         else:
             raise
-    assert_file=(data_dir/f"forcings/ngen.t16z.analysis_assim_extend.forcing.tm01_tm01.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir
+        / f"forcings/ngen.t16z.analysis_assim_extend.forcing.tm01_tm01.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)    
+    os.remove(assert_file)
 
-def test_noaa_nwm_pds_s3(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START   
-    nwmurl_conf["runinput"] = 1 
+
+def test_noaa_nwm_pds_s3(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
+    nwmurl_conf["runinput"] = 1
     nwmurl_conf["urlbaseinput"] = 8
     nwmurl_conf["fcst_cycle"] = [0]
-    generate_nwmfiles(nwmurl_conf)          
+    generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)            
+    os.remove(assert_file)
+
 
 # def test_ciroh_zarr():
 #     assert False, "Not implemented"
 #     nwmurl_conf['start_date'] = TODAY_START
-#     nwmurl_conf['end_date']   = TODAY_START    
+#     nwmurl_conf['end_date']   = TODAY_START
 #     nwmurl_conf["urlbaseinput"] = 9
-#     generate_nwmfiles(nwmurl_conf)          
+#     generate_nwmfiles(nwmurl_conf)
 #     prep_ngen_data(conf)
 #     assert assert_file.exists()
-#     os.remove(assert_file)        
+#     os.remove(assert_file)
 
-def test_retro_2_1_https(download_weight_file,clean_forcings_metadata_dirs):    
-    conf['forcing']['nwm_file'] = retro_filenamelist
+
+def test_retro_2_1_https(download_weight_file, clean_forcings_metadata_dirs):
+    conf["forcing"]["nwm_file"] = retro_filenamelist
     nwmurl_conf_retro["urlbaseinput"] = 1
     generate_nwmfiles(nwmurl_conf_retro)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/VPU_09_forcings.nc").resolve()
+    assert_file = (data_dir / f"forcings/VPU_09_forcings.nc").resolve()
     assert assert_file.exists()
-    os.remove(assert_file)     
+    os.remove(assert_file)
 
-def test_retro_2_1_s3(download_weight_file,clean_forcings_metadata_dirs):
-    conf['forcing']['nwm_file'] = retro_filenamelist
+
+def test_retro_2_1_s3(download_weight_file, clean_forcings_metadata_dirs):
+    conf["forcing"]["nwm_file"] = retro_filenamelist
     nwmurl_conf_retro["urlbaseinput"] = 2
     generate_nwmfiles(nwmurl_conf_retro)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/VPU_09_forcings.nc").resolve()
+    assert_file = (data_dir / f"forcings/VPU_09_forcings.nc").resolve()
     assert assert_file.exists()
-    os.remove(assert_file)               
+    os.remove(assert_file)
+
 
 # def test_retro_ciroh_zarr():
 #     assert False, "Not implemented"
@@ -243,82 +285,88 @@ def test_retro_2_1_s3(download_weight_file,clean_forcings_metadata_dirs):
 #     generate_nwmfiles(nwmurl_conf_retro)
 #     prep_ngen_data(conf)
 #     assert assert_file.exists()
-#     os.remove(assert_file)          
+#     os.remove(assert_file)
 
-def test_retro_3_0(download_weight_file,clean_forcings_metadata_dirs):
-    conf['forcing']['nwm_file'] = retro_filenamelist
+
+def test_retro_3_0(download_weight_file, clean_forcings_metadata_dirs):
+    conf["forcing"]["nwm_file"] = retro_filenamelist
     nwmurl_conf_retro["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf_retro)
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/VPU_09_forcings.nc").resolve()
+    assert_file = (data_dir / f"forcings/VPU_09_forcings.nc").resolve()
     assert assert_file.exists()
-    os.remove(assert_file)          
+    os.remove(assert_file)
 
-def test_plotting(download_gpkg,clean_forcings_metadata_dirs):
+
+def test_plotting(download_gpkg, clean_forcings_metadata_dirs):
     geopackage_name = "vpu-09_subset.gpkg"
-    conf['forcing']['nwm_file'] = retro_filenamelist
-    conf['forcing']['gpkg_file'] = os.path.join(data_dir,geopackage_name)
-    conf['plot'] = {}
-    conf['plot']['nts'] = 1
-    conf['plot']['ngen_vars'] = [
-            "TMP_2maboveground"
-        ] 
+    conf["forcing"]["nwm_file"] = retro_filenamelist
+    conf["forcing"]["gpkg_file"] = os.path.join(data_dir, geopackage_name)
+    conf["plot"] = {}
+    conf["plot"]["nts"] = 1
+    conf["plot"]["ngen_vars"] = ["TMP_2maboveground"]
     nwmurl_conf_retro["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf_retro)
     prep_ngen_data(conf)
-    del conf['plot']
-    GIF = (data_dir/"metadata/GIFs/T2D_2_TMP_2maboveground.gif").resolve()
+    del conf["plot"]
+    GIF = (data_dir / "metadata/GIFs/T2D_2_TMP_2maboveground.gif").resolve()
     assert GIF.exists()
-    os.remove(GIF)         
+    os.remove(GIF)
 
-def test_s3_output(download_weight_file,clean_forcings_metadata_dirs,clean_s3_test):
+
+def test_s3_output(download_weight_file, clean_forcings_metadata_dirs, clean_s3_test):
     test_bucket = "ciroh-community-ngen-datastream"
-    if 'plot' in conf.keys():
-        conf.pop('plot')
-    conf['forcing']['nwm_file'] = retro_filenamelist
-    conf['storage']['output_path'] = f's3://{test_bucket}/test/cicd/forcingprocessor/pytest'
-    conf['storage']['output_file_type'] = ["netcdf"]
+    if "plot" in conf.keys():
+        conf.pop("plot")
+    conf["forcing"]["nwm_file"] = retro_filenamelist
+    conf["storage"]["output_path"] = (
+        f"s3://{test_bucket}/test/cicd/forcingprocessor/pytest"
+    )
+    conf["storage"]["output_file_type"] = ["netcdf"]
     nwmurl_conf_retro["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf_retro)
-    prep_ngen_data(conf)     
-    conf['storage']['output_path'] = str(data_dir)
+    prep_ngen_data(conf)
+    conf["storage"]["output_path"] = str(data_dir)
 
-def test_csv_output_type(download_weight_file,clean_forcings_metadata_dirs):
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START   
-    nwmurl_conf["runinput"] = 1 
+
+def test_csv_output_type(download_weight_file, clean_forcings_metadata_dirs):
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
+    nwmurl_conf["runinput"] = 1
     nwmurl_conf["urlbaseinput"] = 8
     nwmurl_conf["fcst_cycle"] = [0]
-    generate_nwmfiles(nwmurl_conf)  
-    conf['storage']['output_file_type'] = ["csv"]      
+    generate_nwmfiles(nwmurl_conf)
+    conf["storage"]["output_file_type"] = ["csv"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/cat-1496145.csv").resolve()
+    assert_file = (data_dir / f"forcings/cat-1496145.csv").resolve()
     assert assert_file.exists()
-    os.remove(assert_file)   
+    os.remove(assert_file)
 
-def test_parquet_output_type(download_weight_file,clean_forcings_metadata_dirs):
-    generate_nwmfiles(nwmurl_conf)  
-    conf['storage']['output_file_type'] = ["parquet"]      
+
+def test_parquet_output_type(download_weight_file, clean_forcings_metadata_dirs):
+    generate_nwmfiles(nwmurl_conf)
+    conf["storage"]["output_file_type"] = ["parquet"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/cat-1496145.parquet").resolve()
+    assert_file = (data_dir / f"forcings/cat-1496145.parquet").resolve()
     assert assert_file.exists()
-    os.remove(assert_file)       
+    os.remove(assert_file)
 
-def test_tar_output_type(download_weight_file,clean_forcings_metadata_dirs):
-    generate_nwmfiles(nwmurl_conf)  
-    conf['storage']['output_file_type'] = ["tar"]      
+
+def test_tar_output_type(download_weight_file, clean_forcings_metadata_dirs):
+    generate_nwmfiles(nwmurl_conf)
+    conf["storage"]["output_file_type"] = ["tar"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/VPU_09_forcings.tar.gz").resolve()
+    assert_file = (data_dir / f"forcings/VPU_09_forcings.tar.gz").resolve()
     assert assert_file.exists()
-    os.remove(assert_file)       
+    os.remove(assert_file)
 
-def test_netcdf_output_type(download_weight_file,clean_forcings_metadata_dirs):
-    generate_nwmfiles(nwmurl_conf)  
-    conf['storage']['output_file_type'] = ["netcdf"]      
+
+def test_netcdf_output_type(download_weight_file, clean_forcings_metadata_dirs):
+    generate_nwmfiles(nwmurl_conf)
+    conf["storage"]["output_file_type"] = ["netcdf"]
     prep_ngen_data(conf)
-    assert_file=(data_dir/f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc").resolve()
+    assert_file = (
+        data_dir / f"forcings/ngen.t00z.short_range.forcing.f001_f001.VPU_09.nc"
+    ).resolve()
     assert assert_file.exists()
-    os.remove(assert_file)       
-
-
-    
+    os.remove(assert_file)

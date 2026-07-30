@@ -146,145 +146,163 @@ def test_restart():
 # test prep_ngen_conf
 # ---------------------------------------------------------------------------
 
-HF_VERSION="v2.2"
+HF_VERSION = "v2.2"
 date = datetime.now(timezone.utc)
-date = date.strftime('%Y%m%d')
-HOURMINUTE  = '0000'
+date = date.strftime("%Y%m%d")
+HOURMINUTE = "0000"
 TODAY_START = date + HOURMINUTE
 yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
-yesterday = yesterday.strftime('%Y%m%d')
+yesterday = yesterday.strftime("%Y%m%d")
 test_dir = Path(__file__).parent
-data_dir = (test_dir/'data').resolve()
-forcings_dir = (data_dir/'restart').resolve()
-pwd      = Path.cwd()
+data_dir = (test_dir / "data").resolve()
+forcings_dir = (data_dir / "restart").resolve()
+pwd = Path.cwd()
 if os.path.exists(data_dir):
     os.system(f"rm -rf {data_dir}")
 os.system(f"mkdir {data_dir}")
-FILENAMELIST = str((pwd/"filenamelist.txt").resolve())
+FILENAMELIST = str((pwd / "filenamelist.txt").resolve())
 
 conf = {
-    "forcing"  : {
-        "nwm_file"   : FILENAMELIST,
-        "restart_map_file"  : f"{pwd}/docs/examples/troute-restart_example/hf2.2_subset_cat_map.json",
-        "crosswalk_file"   : f"{pwd}/docs/examples/troute-restart_example/crosswalk_subset.nc",
-        "routelink_file"   : f"{pwd}/docs/examples/troute-restart_example/RouteLink_CONUS_subset.nc"
+    "forcing": {
+        "nwm_file": FILENAMELIST,
+        "restart_map_file": f"{pwd}/docs/examples/troute-restart_example/hf2.2_subset_cat_map.json",
+        "crosswalk_file": f"{pwd}/docs/examples/troute-restart_example/crosswalk_subset.nc",
+        "routelink_file": f"{pwd}/docs/examples/troute-restart_example/RouteLink_CONUS_subset.nc",
     },
-
-    "storage":{
-        "storage_type"      : "local",
-        "output_path"       : str(data_dir),
-        "output_file_type"  : ["netcdf"]
+    "storage": {
+        "storage_type": "local",
+        "output_path": str(data_dir),
+        "output_file_type": ["netcdf"],
     },
-
-    "run" : {
-        "verbose"       : False,
-        "collect_stats" : False,
-        "nprocs"         : 1
-    }
-    }
+    "run": {"verbose": False, "collect_stats": False, "nprocs": 1},
+}
 
 nwmurl_conf = {
-        "forcing_type" : "operational_archive",
-        "start_date"   : "",
-        "end_date"     : "",
-        "runinput"     : 5,
-        "varinput"     : 1,
-        "geoinput"     : 1,
-        "meminput"     : 0,
-        "urlbaseinput" : 7,
-        "fcst_cycle"   : [0],
-        "lead_time"    : [0]
-    }
+    "forcing_type": "operational_archive",
+    "start_date": "",
+    "end_date": "",
+    "runinput": 5,
+    "varinput": 1,
+    "geoinput": 1,
+    "meminput": 0,
+    "urlbaseinput": 7,
+    "fcst_cycle": [0],
+    "lead_time": [0],
+}
+
 
 @pytest.fixture
 def clean_dir(autouse=True):
     if os.path.exists(forcings_dir):
-        os.system(f'rm -rf {str(forcings_dir)}')
+        os.system(f"rm -rf {str(forcings_dir)}")
+
 
 def test_nomads_prod():
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 1
     generate_nwmfiles(nwmurl_conf)
-    conf['run']['collect_stats'] = True # test metadata generation once
+    conf["run"]["collect_stats"] = True  # test metadata generation once
     prep_ngen_data(conf)
-    conf['run']['collect_stats'] = False
-    assert_file=Path(data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc").resolve()
+    conf["run"]["collect_stats"] = False
+    assert_file = Path(
+        data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc"
+    ).resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
+
 def test_nwm_google_apis():
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 3
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=Path(data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc").resolve()
+    assert_file = Path(
+        data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc"
+    ).resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
+
 def test_google_cloud_storage():
-    nwmurl_conf['start_date'] = "202407100100"
-    nwmurl_conf['end_date']   = "202407100100"
+    nwmurl_conf["start_date"] = "202407100100"
+    nwmurl_conf["end_date"] = "202407100100"
     nwmurl_conf["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"restart/channel_restart_20240710_000000.nc").resolve()
+    assert_file = (data_dir / "restart/channel_restart_20240710_000000.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
+
 def test_gs():
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 5
     generate_nwmfiles(nwmurl_conf)
-    assert_file=Path(data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc").resolve()
+    assert_file = Path(
+        data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc"
+    ).resolve()
     prep_ngen_data(conf)
     assert assert_file.exists()
     os.remove(assert_file)
 
+
 def test_gcs():
-    nwmurl_conf['start_date'] = "202407100100"
-    nwmurl_conf['end_date']   = "202407100100"
+    nwmurl_conf["start_date"] = "202407100100"
+    nwmurl_conf["end_date"] = "202407100100"
     nwmurl_conf["urlbaseinput"] = 6
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=(data_dir/"restart/channel_restart_20240710_000000.nc").resolve()
+    assert_file = (data_dir / "restart/channel_restart_20240710_000000.nc").resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
+
 def test_noaa_nwm_pds_https():
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 7
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=Path(data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc").resolve()
+    assert_file = Path(
+        data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc"
+    ).resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
+
 def test_noaa_nwm_pds_s3():
-    nwmurl_conf['start_date'] = TODAY_START
-    nwmurl_conf['end_date']   = TODAY_START
+    nwmurl_conf["start_date"] = TODAY_START
+    nwmurl_conf["end_date"] = TODAY_START
     nwmurl_conf["urlbaseinput"] = 8
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    assert_file=Path(data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc").resolve()
+    assert_file = Path(
+        data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc"
+    ).resolve()
     assert assert_file.exists()
     os.remove(assert_file)
 
+
 def test_s3_output():
     test_bucket = "ciroh-community-ngen-datastream"
-    conf['storage']['output_path'] = f's3://{test_bucket}/test/cicd/forcingprocessor/pytest'
+    conf["storage"]["output_path"] = (
+        f"s3://{test_bucket}/test/cicd/forcingprocessor/pytest"
+    )
     nwmurl_conf["urlbaseinput"] = 4
     generate_nwmfiles(nwmurl_conf)
     prep_ngen_data(conf)
-    conf['storage']['output_path'] = str(data_dir)
+    conf["storage"]["output_path"] = str(data_dir)
+
 
 def test_netcdf_output_type():
     generate_nwmfiles(nwmurl_conf)
-    conf['storage']['output_file_type'] = ["netcdf"]
+    conf["storage"]["output_file_type"] = ["netcdf"]
     prep_ngen_data(conf)
-    assert_file=Path(data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc").resolve()
+    assert_file = Path(
+        data_dir / f"restart/channel_restart_{date}_{HOURMINUTE}00.nc"
+    ).resolve()
     assert assert_file.exists()
     os.remove(assert_file)
