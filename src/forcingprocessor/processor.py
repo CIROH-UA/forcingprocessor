@@ -33,7 +33,7 @@ from forcingprocessor.channel_routing_tools import (
     write_netcdf_chrt,
 )
 from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_restart
-from forcingprocessor.utils import normalize_vpu_id
+
 
 B2MB = 1048576
 
@@ -1047,7 +1047,6 @@ def prep_ngen_data(conf):
         weights_df, jcatchment_dict = multiprocess_hf2ds(
             gpkg_files, nwm_forcing_files[0], nprocs
         )
-
         log_time("READWEIGHTS_END", log_file)
 
         # # conus hack

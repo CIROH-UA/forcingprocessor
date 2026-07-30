@@ -6,9 +6,9 @@ import pandas as pd
 import xarray as xr
 import numpy as np
 import multiprocessing as mp
-
-gpd.options.io_engine = "pyogrio"
 from forcingprocessor.utils import normalize_vpu_id
+gpd.options.io_engine = "pyogrio"
+
 
 
 def rastersourceNexactextract(raster_data, geo_data):
