@@ -19,12 +19,14 @@ from forcingprocessor.utils import convert_url2key, report_usage, make_forcing_n
 
 B2MB = 1048576
 
-def channelrouting_nwm2ngen(nwm_files: list,
-                            mapping_arg: dict,
-                            fs_type_arg: str,
-                            fs_arg = None,
-                            ii_verbose_arg: bool = False
-                            ):
+
+def channelrouting_nwm2ngen(
+    nwm_files: list,
+    mapping_arg: dict,
+    fs_type_arg: str,
+    fs_arg=None,
+    ii_verbose_arg: bool = False,
+):
     """
     Retrieve catchment level data from national water model files
 
@@ -47,23 +49,25 @@ def channelrouting_nwm2ngen(nwm_files: list,
     t_list = []
     nfiles = len(nwm_files)
     nwm_cats = list(itertools.chain.from_iterable(list(mapping_arg.values())))
-    if fs_type_arg == 'google' :
+    if fs_type_arg == "google":
         fs_arg = gcsfs.GCSFileSystem()
     pid = os.getpid()
     if ii_verbose_arg:
-        print(f'Process #{pid} extracting data from {nfiles} files',end=None,flush=True)
+        print(
+            f"Process #{pid} extracting data from {nfiles} files", end=None, flush=True
+        )
     data_list = []
     nwm_file_sizes_MB = []
     for j, nwm_file in enumerate(nwm_files):
         t0 = time.perf_counter()
         if fs_arg:
-            if nwm_file.find('https://') >= 0:
-                _, bucket_key = convert_url2key(nwm_file,fs_type_arg)
+            if nwm_file.find("https://") >= 0:
+                _, bucket_key = convert_url2key(nwm_file, fs_type_arg)
             else:
                 bucket_key = nwm_file
-            file_obj   = fs_arg.open(bucket_key, mode='rb')
-            nwm_file_sizes_MB.append(file_obj.details['size'])
-        elif 'https://' in nwm_file:
+            file_obj = fs_arg.open(bucket_key, mode="rb")
+            nwm_file_sizes_MB.append(file_obj.details["size"])
+        elif "https://" in nwm_file:
             response = requests.get(nwm_file, timeout=10)
 
             if response.status_code == 200:
@@ -77,7 +81,7 @@ def channelrouting_nwm2ngen(nwm_files: list,
 
         topen += time.perf_counter() - t0
         t0 = time.perf_counter()
-        with xr.open_dataset(file_obj,chunks={}) as nwm_data:
+        with xr.open_dataset(file_obj, chunks={}) as nwm_data:
             txrds += time.perf_counter() - t0
             t0 = time.perf_counter()
             data_allnwm = {}
@@ -85,20 +89,30 @@ def channelrouting_nwm2ngen(nwm_files: list,
                 subset = nwm_data.sel(feature_id=nwm_cats)
                 valid_nwm_cats = nwm_cats
             except KeyError:
-                print(f"Some NWM IDs from the mapping are not present in {nwm_file}. Only " +
-                      "processing available IDs.",
-                      flush=True)
-                feature_ids_in_file = set(nwm_data['feature_id'].values)
+                print(
+                    f"Some NWM IDs from the mapping are not present in {nwm_file}. Only "
+                    + "processing available IDs.",
+                    flush=True,
+                )
+                feature_ids_in_file = set(nwm_data["feature_id"].values)
                 valid_nwm_cats = feature_ids_in_file.intersection(nwm_cats)
                 subset = nwm_data.sel(feature_id=list(valid_nwm_cats))
             if "retrospective" in nwm_file:
-                data_allnwm = dict(zip(subset['feature_id'].values,subset['q_lateral'].values))
-                t = datetime.strftime(datetime.strptime(
-                    nwm_file.split('/')[-1].split('.')[0],'%Y%m%d%H%M'),'%Y-%m-%d %H:%M:%S')
+                data_allnwm = dict(
+                    zip(subset["feature_id"].values, subset["q_lateral"].values)
+                )
+                t = datetime.strftime(
+                    datetime.strptime(
+                        nwm_file.split("/")[-1].split(".")[0], "%Y%m%d%H%M"
+                    ),
+                    "%Y-%m-%d %H:%M:%S",
+                )
             else:
                 # q_lateral is calculated by adding these two together
-                subset['q_lateral'] = subset['qSfcLatRunoff'] + subset['qBucket']
-                data_allnwm = dict(zip(subset['feature_id'].values,subset['q_lateral'].values))
+                subset["q_lateral"] = subset["qSfcLatRunoff"] + subset["qBucket"]
+                data_allnwm = dict(
+                    zip(subset["feature_id"].values, subset["q_lateral"].values)
+                )
                 time_splt = subset.attrs["model_output_valid_time"].split("_")
                 t = time_splt[0] + " " + time_splt[1]
             t_list.append(t)
@@ -118,20 +132,37 @@ def channelrouting_nwm2ngen(nwm_files: list,
         tdata += time.perf_counter() - t0
         ttotal = topen + txrds + tfill + tdata
         if ii_verbose_arg:
-            print(f'\nAverage time for:\nfs open file: {topen/(j+1):.2f} s\n', end=None,flush=True)
-            print(f'xarray open dataset: {txrds/(j+1):.2f} s\nfill array: {tfill/(j+1):.2f} s\n',
-                  end=None,flush=True)
-            print(f'calculate catchment values: {tdata/(j+1):.2f} s\ntotal {ttotal/(j+1):.2f} s\n',
-                  end=None,flush=True)
-            print(f'percent complete {100*(j+1)/nfiles:.2f}', end=None,flush=True)
+            print(
+                f"\nAverage time for:\nfs open file: {topen / (j + 1):.2f} s\n",
+                end=None,
+                flush=True,
+            )
+            print(
+                f"xarray open dataset: {txrds / (j + 1):.2f} s\nfill array: {tfill / (j + 1):.2f} s\n",
+                end=None,
+                flush=True,
+            )
+            print(
+                f"calculate catchment values: {tdata / (j + 1):.2f} s\ntotal {ttotal / (j + 1):.2f} s\n",
+                end=None,
+                flush=True,
+            )
+            print(
+                f"percent complete {100 * (j + 1) / nfiles:.2f}", end=None, flush=True
+            )
         report_usage()
 
     if ii_verbose_arg:
-        print(f'Process #{pid} completed data extraction, returning data to primary process',
-              flush=True)
+        print(
+            f"Process #{pid} completed data extraction, returning data to primary process",
+            flush=True,
+        )
     return [data_list, t_list, nwm_file_sizes_MB]
 
-def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: list, name: str):
+
+def write_netcdf_chrt(
+    storage_type: str, prefix: Path, data: np.ndarray, times: list, name: str
+):
     """
     Write channel routing data to a NetCDF file.
 
@@ -144,7 +175,7 @@ def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: 
     Returns:
         netcdf_cat_file_size (list): file size of output netcdf
     """
-    if storage_type == 's3':
+    if storage_type == "s3":
         s3_client = boto3.session.Session().client("s3")
         nc_filename = str(prefix) + "/" + name
     else:
@@ -155,17 +186,12 @@ def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: 
     q_lateral = data[:, :, 1].astype(float)
 
     ds = xr.Dataset(
-    {
-        "q_lateral": (("time", "feature_id"), q_lateral)
-    },
-    coords={
-        "time": time_coord,
-        "feature_id": feature_ids
-        }
+        {"q_lateral": (("time", "feature_id"), q_lateral)},
+        coords={"time": time_coord, "feature_id": feature_ids},
     )
-    if storage_type == 's3':
-        bucket, key = convert_url2key(nc_filename,'s3')
-        with tempfile.NamedTemporaryFile(suffix='.nc') as tmpfile:
+    if storage_type == "s3":
+        bucket, key = convert_url2key(nc_filename, "s3")
+        with tempfile.NamedTemporaryFile(suffix=".nc") as tmpfile:
             ds.to_netcdf(tmpfile.name, engine="netcdf4")
             netcdf_cat_file_size = os.path.getsize(tmpfile.name) / B2MB
             tmpfile.flush()
@@ -174,6 +200,6 @@ def write_netcdf_chrt(storage_type: str, prefix: Path, data: np.ndarray, times: 
             s3_client.upload_file(tmpfile.name, bucket, key)
     else:
         ds.to_netcdf(nc_filename, engine="netcdf4")
-        print(f'netcdf has been written to {nc_filename}')
+        print(f"netcdf has been written to {nc_filename}")
         netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
     return [netcdf_cat_file_size]
