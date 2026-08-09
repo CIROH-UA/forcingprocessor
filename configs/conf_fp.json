@@ -1,7 +1,8 @@
 {
     "forcing"  : {
         "nwm_file"   : "./docs/examples/cfe-nom_example/filenamelist.txt",
-        "gpkg_file"  : ["./docs/examples/cfe-nom_example/cat-1555522_subset.gpkg"]
+        "gpkg_file"  : ["./docs/examples/cfe-nom_example/cat-1555522_subset.gpkg"],
+        "weights_file" : ["./docs/examples/cfe-nom_example/weights.parquet"]
     },
 
     "storage":{

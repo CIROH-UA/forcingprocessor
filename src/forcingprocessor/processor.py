@@ -912,12 +912,22 @@ def prep_ngen_data(conf):
     log_time("CONFIGURATION_START", log_file)
 
     gpkg_file = conf["forcing"].get("gpkg_file", None)
+    weights_file = conf["forcing"].get("weights_file", None)
     nwm_file = conf["forcing"].get("nwm_file", "")
 
-    if type(gpkg_file) is not list:
-        gpkg_files = [gpkg_file]
-    else:
+    if gpkg_file is None:
+        gpkg_files = []
+    elif isinstance(gpkg_file, list):
         gpkg_files = gpkg_file
+    else:
+        gpkg_files = [gpkg_file]
+
+    if weights_file is None:
+        weights_files = []
+    elif isinstance(weights_file, list):
+        weights_files = weights_file
+    else:
+        weights_files = [weights_file]
 
     map_file_path = conf["forcing"].get("map_file", None)
     restart_map_file_path = conf["forcing"].get("restart_map_file", None)
@@ -1024,9 +1034,35 @@ def prep_ngen_data(conf):
         if ii_verbose:
             print(f"Obtaining weights\n", flush=True)
         global weights_df
+
+        if weights_files:
+            # Explicit precomputed weights were supplied in the config file, so read them in
+            # Use them instead of generating/loading weights from the geopackage
+            weight_inputs = weights_files
+
+            if ii_verbose:
+                print(
+                    f"Using precomputed weights from {weights_files}\n", flush=True
+                )
+        elif gpkg_files:
+            # Backward-compatible behavior:
+            # obtain the forcing-weights layer from the geopackage,
+            # or calculate weights if it is not present.
+            weight_inputs = gpkg_files
+
+            if ii_verbose:
+                print(
+                    f"Obtaining weights from geopackage {gpkg_files}\n", flush=True
+                )
+        else:
+            raise RuntimeError(
+                "No weights or geopackage file specified in config file. Cannot proceed."
+            )
+        
         weights_df, jcatchment_dict = multiprocess_hf2ds(
-            gpkg_files, nwm_forcing_files[0], nprocs
+            weight_inputs, nwm_forcing_files[0], nprocs
         )
+
         log_time("READWEIGHTS_END", log_file)
 
         # # conus hack
@@ -1044,6 +1080,8 @@ def prep_ngen_data(conf):
         window = [x_max, x_min, y_max, y_min]
         weight_time = time.perf_counter() - tw
         log_time("CALC_WINDOW_END", log_file)
+
+        
     elif data_source == "channel_routing":
         log_time("READMAP_START", log_file)
         tw = time.perf_counter()
