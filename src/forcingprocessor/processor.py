@@ -986,7 +986,16 @@ def prep_ngen_data(conf):
             raise RuntimeError(
                 "Plotting not supported for channel routing or restart processing."
             )
-
+        if not gpkg_files:
+            raise RuntimeError(
+                "Plotting requires a geopackage specified by gpkg_file."
+            )
+        if gpkg_files[0].endswith(".parquet"):
+            print(
+                "Plotting currently not implemented for parquet, need geopackage"
+            )
+            ii_plot = False
+    if ii_plot:
         nts_plot = conf["plot"].get("nts_plot", 10)
         ngen_vars_plot = conf["plot"].get("ngen_vars", ngen_variables)
     else:
@@ -1081,7 +1090,7 @@ def prep_ngen_data(conf):
         weight_time = time.perf_counter() - tw
         log_time("CALC_WINDOW_END", log_file)
 
-        
+
     elif data_source == "channel_routing":
         log_time("READMAP_START", log_file)
         tw = time.perf_counter()
@@ -1360,36 +1369,33 @@ def prep_ngen_data(conf):
     runtime = time.perf_counter() - t_start
 
     if ii_plot:
-        if gpkg_files[0].endswith(".parquet"):
-            print(f"Plotting currently not implemented for parquet, need geopackage")
-        else:
-            if len(gpkg_files) > 1:
-                raise Warning(f"Plotting only the first geopackage {gpkg_files[0]}")
+        if len(gpkg_files) > 1:
+            raise Warning(f"Plotting only the first geopackage {gpkg_files[0]}")
 
-            cat_ids = ["cat-" + x for x in forcing_cat_ids]
-            jplot_vars = np.array(
-                [
-                    x
-                    for x in range(len(ngen_variables))
-                    if ngen_variables[x] in ngen_vars_plot
-                ]
-            )
-            if storage_type == "s3":
-                gif_out = "./GIFs"
-            else:
-                gif_out = Path(meta_path, "GIFs")
-            plot_ngen_forcings(
-                nwm_data,
-                data_array[:, jplot_vars, :],
-                gpkg_files[0],
-                t_ax,
-                cat_ids,
-                ngen_vars_plot,
-                gif_out,
-            )
-            if storage_type == "s3":
-                sync_cmd = f"aws s3 sync ./GIFs {meta_path}/GIFs"
-                os.system(sync_cmd)
+        cat_ids = ["cat-" + x for x in forcing_cat_ids]
+        jplot_vars = np.array(
+            [
+                x
+                for x in range(len(ngen_variables))
+                if ngen_variables[x] in ngen_vars_plot
+            ]
+        )
+        if storage_type == "s3":
+            gif_out = "./GIFs"
+        else:
+            gif_out = Path(meta_path, "GIFs")
+        plot_ngen_forcings(
+            nwm_data,
+            data_array[:, jplot_vars, :],
+            gpkg_files[0],
+            t_ax,
+            cat_ids,
+            ngen_vars_plot,
+            gif_out,
+        )
+        if storage_type == "s3":
+            sync_cmd = f"aws s3 sync ./GIFs {meta_path}/GIFs"
+            os.system(sync_cmd)
 
     # Metadata
     if ii_collect_stats:
