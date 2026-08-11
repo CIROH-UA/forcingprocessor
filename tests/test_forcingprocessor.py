@@ -391,7 +391,25 @@ def test_vpu_metadata_output(download_weight_file, clean_forcings_metadata_dirs)
     ).resolve()
     assert metadata_file.exists()
     metadata_df = pd.read_csv(metadata_file)
-    assert "vpu_id" in metadata_df.columns
+
+    expected_columns = {
+        "vpu_id",
+        "precip_min",
+        "precip_max",
+        "precip_mean",
+        "precip_sum",
+        "precip_nonzero_fraction",
+    }
+
+    assert set(metadata_df.columns) == expected_columns
     assert "VPU_09" in metadata_df["vpu_id"].values
+
+    vpu_row = metadata_df.loc[metadata_df["vpu_id"] == "VPU_09"].iloc[0]
+
+    assert vpu_row["precip_min"] >= 0
+    assert vpu_row["precip_max"] >= vpu_row["precip_min"]
+    assert vpu_row["precip_mean"] >= 0
+    assert vpu_row["precip_sum"] >= 0
+    assert 0 <= vpu_row["precip_nonzero_fraction"] <= 1
     os.remove(netcdf_file)
     

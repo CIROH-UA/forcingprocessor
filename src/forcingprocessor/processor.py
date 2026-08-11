@@ -840,6 +840,58 @@ def multiprocess_write_netcdf(
     return netcdf_cat_file_sizes
 
 
+def calculate_vpu_precip_stats(data_array, catchment_ids, jcatchment_dict):
+    """
+    Calculate compact precipitation statistics for each VPU.
+
+    Parameters
+    ----------
+    data_array : np.ndarray
+        Forcing data with dimensions (time, variable, catchment).
+    catchment_ids : list
+        Catchment IDs corresponding to the catchment axis of data_array.
+    jcatchment_dict : dict
+        Mapping of VPU IDs to catchment IDs.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per VPU containing precipitation summary statistics.
+    """
+    precip_idx = ngen_variables.index("precip_rate")
+    catchment_index = {
+        str(catchment_id): i for i, catchment_id in enumerate(catchment_ids)
+    }
+
+    rows = []
+
+    for vpu_id, vpu_catchments in jcatchment_dict.items():
+        indices = [
+            catchment_index[str(catchment_id)]
+            for catchment_id in vpu_catchments
+            if str(catchment_id) in catchment_index
+        ]
+
+        if not indices:
+            continue
+
+        precip = data_array[:, precip_idx, indices]
+
+        rows.append(
+            {
+                "vpu_id": vpu_id,
+                "precip_min": float(np.min(precip)),
+                "precip_max": float(np.max(precip)),
+                "precip_mean": float(np.mean(precip)),
+                "precip_sum": float(np.sum(precip)),
+                "precip_nonzero_fraction": float(
+                    np.count_nonzero(precip) / precip.size
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
 def write_df(
     df: pd.DataFrame,
     filename: str,
@@ -1486,6 +1538,12 @@ def prep_ngen_data(conf):
             data_med = np.median(data_array, axis=0)
             med_df = pd.DataFrame(data_med.T, columns=ngen_variables)
             med_df.insert(0, "catchment id", forcing_cat_ids)
+
+            vpu_precip_df = calculate_vpu_precip_stats(
+                data_array,
+                list(weights_df.index),
+                jcatchment_dict,
+            )
         elif data_source == "channel_routing":
             data_avg = np.average(data_array[:, :, 1], axis=0)
             avg_df = pd.DataFrame(data_avg.T, columns=["q_lateral"])
@@ -1513,43 +1571,11 @@ def prep_ngen_data(conf):
         else:
             local_metapath = metaf_path
 
-        # Issue 9: write VPU-delineated metadata.
-        # This keeps the original global metadata.csv, and adds metadata_by_vpu.csv.
+       
         if data_source == "forcings":
-            vpu_metadata_rows = []
-
-            netcdf_size_by_vpu = {}
-
-            if "netcdf" in output_file_type:
-                netcdf_size_by_vpu = dict(
-                    zip(jcatchment_dict.keys(), netcdf_cat_file_sizes_MB)
-                )
-
-            for i, vpu_id in enumerate(vpu_ids):
-                vpu_catchments = jcatchment_dict.get(vpu_id, [])
-
-                vpu_netcdf_size = netcdf_size_by_vpu.get(vpu_id, 0)
-
-                vpu_metadata_rows.append(
-                    {
-                        "vpu_id": vpu_id,
-                        "gpkg_file": str(gpkg_files[i]),
-                        "ncatchments": len(vpu_catchments),
-                        "nwmfiles_input": len(nwm_forcing_files),
-                        "nvars_input": len(nwm_variables),
-                        "nvars_output": len(ngen_variables),
-                        "runtime_s": round(runtime, 2),
-                        "nwm_file_size_avg_MB": nwm_file_size_avg,
-                        "nwm_file_size_med_MB": nwm_file_size_med,
-                        "nwm_file_size_std_MB": nwm_file_size_std,
-                        "netcdf_file_size_MB": vpu_netcdf_size,
-                    }
-                )
-
-            vpu_metadata_df = pd.DataFrame(vpu_metadata_rows)
-
+            # Issue 9: write compact VPU-level precipitation statistics.
             write_df(
-                vpu_metadata_df,
+                vpu_precip_df,
                 "metadata_by_vpu.csv",
                 storage_type,
                 data_source_arg="na",
@@ -1558,54 +1584,6 @@ def prep_ngen_data(conf):
                 bucket=meta_bucket,
                 client=s3,
             )
-
-            # Also provide catchment-level stats with a VPU column for NRDS-style QA.
-            catchment_to_vpu = {}
-            for jvpu, jcats in jcatchment_dict.items():
-                for jcat in jcats:
-                    catchment_to_vpu[str(jcat).replace("cat-", "")] = jvpu
-
-            if not avg_df.empty and "catchment id" in avg_df.columns:
-                avg_by_vpu_df = avg_df.copy()
-                avg_by_vpu_df.insert(
-                    0,
-                    "vpu_id",
-                    avg_by_vpu_df["catchment id"]
-                    .astype(str)
-                    .map(catchment_to_vpu)
-                    .fillna(""),
-                )
-                write_df(
-                    avg_by_vpu_df,
-                    "catchments_avg_by_vpu.csv",
-                    storage_type,
-                    data_source_arg="na",
-                    local_path=local_metapath,
-                    key_prefix=meta_key,
-                    bucket=meta_bucket,
-                    client=s3,
-                )
-
-            if not med_df.empty and "catchment id" in med_df.columns:
-                med_by_vpu_df = med_df.copy()
-                med_by_vpu_df.insert(
-                    0,
-                    "vpu_id",
-                    med_by_vpu_df["catchment id"]
-                    .astype(str)
-                    .map(catchment_to_vpu)
-                    .fillna(""),
-                )
-                write_df(
-                    med_by_vpu_df,
-                    "catchments_median_by_vpu.csv",
-                    storage_type,
-                    data_source_arg="na",
-                    local_path=local_metapath,
-                    key_prefix=meta_key,
-                    bucket=meta_bucket,
-                    client=s3,
-                )
 
         write_df(
             metadata_df,
