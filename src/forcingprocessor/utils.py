@@ -2,6 +2,9 @@ from datetime import datetime
 import numpy as np
 from datetime import timezone
 import psutil
+import re
+from pathlib import Path
+
 
 nwm_variables = [
     "U2D",
@@ -146,3 +149,24 @@ def make_forcing_netcdf(
         for i, var_name in enumerate(ngen_variables):
             var = ds.createVariable(var_name, "f8", ("catchment-id", "time"))
             var[:] = input_array[:, :, i]
+
+
+def normalize_vpu_id(value):
+    """
+    Normalize a VPU identifier to the standard VPU_XX format.
+
+    Examples:
+        03W -> VPU_03W
+        vpu_03w -> VPU_03W
+        nextgen_VPU_03W.gpkg -> VPU_03W
+    """
+    name = Path(str(value)).stem
+
+    match = re.search(r"(?i)vpu[-_]?(\d{2}[A-Z]?)", name)
+    if match:
+        return f"VPU_{match.group(1).upper()}"
+
+    if re.fullmatch(r"\d{2}[A-Za-z]?", name):
+        return f"VPU_{name.upper()}"
+
+    return name
