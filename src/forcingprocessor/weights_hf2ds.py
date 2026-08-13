@@ -5,7 +5,6 @@ import concurrent.futures as cf
 import pandas as pd
 import xarray as xr
 import numpy as np
-import multiprocessing as mp
 from forcingprocessor.utils import normalize_vpu_id
 gpd.options.io_engine = "pyogrio"
 
@@ -104,7 +103,6 @@ def calc_weights_from_gdf(gdf: gpd.GeoDataFrame, raster_file: str, nf: str) -> d
     raster_list = [raster_data for x in range(nprocs)]
     with cf.ProcessPoolExecutor(
         max_workers=nprocs,
-        mp_context=mp.get_context("spawn"),
     ) as pool:
         for results in pool.map(rastersourceNexactextract, raster_list, geo_df_list):
             output_list.append(results)
@@ -134,7 +132,6 @@ def multiprocess_hf2ds(files: list, raster_template: str, max_procs: int):
     jcatchment_dicts = []
     with cf.ProcessPoolExecutor(
         max_workers=nprocs,
-        mp_context=mp.get_context("spawn"),
     ) as pool:
         for results in pool.map(
             hf2ds,
