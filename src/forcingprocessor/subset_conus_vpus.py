@@ -137,9 +137,9 @@ def subset_conus2vpus(
                         ncats = len(divides_df)
                         nattrs = len(attrs_df)
 
-                        assert ncats == nattrs, (
-                            f"VPU {jvpu} ncats {ncats} nattrs {nattrs}"
-                        )
+                        assert (
+                            ncats == nattrs
+                        ), f"VPU {jvpu} ncats {ncats} nattrs {nattrs}"
 
                         # attrs_df.to_file(jfile,layer="divide-attributes")
                         # divides_df.to_file(jfile,layer='divides')

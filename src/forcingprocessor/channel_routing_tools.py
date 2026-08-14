@@ -7,15 +7,16 @@ from io import BytesIO
 import time
 from datetime import datetime
 from pathlib import Path
+import tempfile
+
 import gcsfs
 import requests
 import xarray as xr
 import numpy as np
 import pandas as pd
 import boto3
-import traceback
-import tempfile
-from forcingprocessor.utils import convert_url2key, report_usage, make_forcing_netcdf
+
+from forcingprocessor.utils import convert_url2key, report_usage
 
 B2MB = 1048576
 
@@ -26,7 +27,7 @@ def channelrouting_nwm2ngen(
     fs_type_arg: str,
     fs_arg=None,
     ii_verbose_arg: bool = False,
-):
+) -> list[list]:
     """
     Retrieve catchment level data from national water model files
 
@@ -37,10 +38,10 @@ def channelrouting_nwm2ngen(
     fs_type_arg (str): type of file system
     ii_verbose_arg (bool): verbosity
 
-    Outputs: [data_list, t_list, nwm_file_sizes_MB]
+    Outputs: [data_list, t_list, nwm_file_sizes_mb]
     data_list (list): list of ngen forcings ordered in time.
     t_list (list): list of model output times
-    nwm_file_sizes_MB (list): list of file sizes of input CHRTOUT data
+    nwm_file_sizes_mb (list): list of file sizes of input CHRTOUT data
     """
     topen = 0
     txrds = 0
@@ -57,7 +58,7 @@ def channelrouting_nwm2ngen(
             f"Process #{pid} extracting data from {nfiles} files", end=None, flush=True
         )
     data_list = []
-    nwm_file_sizes_MB = []
+    nwm_file_sizes_mb = []
     for j, nwm_file in enumerate(nwm_files):
         t0 = time.perf_counter()
         if fs_arg:
@@ -66,7 +67,7 @@ def channelrouting_nwm2ngen(
             else:
                 bucket_key = nwm_file
             file_obj = fs_arg.open(bucket_key, mode="rb")
-            nwm_file_sizes_MB.append(file_obj.details["size"])
+            nwm_file_sizes_mb.append(file_obj.details["size"])  # type: ignore
         elif "https://" in nwm_file:
             response = requests.get(nwm_file, timeout=10)
 
@@ -74,10 +75,10 @@ def channelrouting_nwm2ngen(
                 file_obj = BytesIO(response.content)
             else:
                 raise RuntimeError(f"{nwm_file} does not exist")
-            nwm_file_sizes_MB.append(len(response.content) / B2MB)
+            nwm_file_sizes_mb.append(len(response.content) / B2MB)
         else:
             file_obj = nwm_file
-            nwm_file_sizes_MB.append(os.path.getsize(nwm_file / B2MB))
+            nwm_file_sizes_mb.append(os.path.getsize(nwm_file / B2MB))
 
         topen += time.perf_counter() - t0
         t0 = time.perf_counter()
@@ -138,12 +139,14 @@ def channelrouting_nwm2ngen(
                 flush=True,
             )
             print(
-                f"xarray open dataset: {txrds / (j + 1):.2f} s\nfill array: {tfill / (j + 1):.2f} s\n",
+                "xarray open dataset: "
+                + f"{txrds / (j + 1):.2f} s\nfill array: {tfill / (j + 1):.2f} s\n",
                 end=None,
                 flush=True,
             )
             print(
-                f"calculate catchment values: {tdata / (j + 1):.2f} s\ntotal {ttotal / (j + 1):.2f} s\n",
+                "calculate catchment values: "
+                + f"{tdata / (j + 1):.2f} s\ntotal {ttotal / (j + 1):.2f} s\n",
                 end=None,
                 flush=True,
             )
@@ -157,12 +160,12 @@ def channelrouting_nwm2ngen(
             f"Process #{pid} completed data extraction, returning data to primary process",
             flush=True,
         )
-    return [data_list, t_list, nwm_file_sizes_MB]
+    return [data_list, t_list, nwm_file_sizes_mb]
 
 
 def write_netcdf_chrt(
     storage_type: str, prefix: Path, data: np.ndarray, times: list, name: str
-):
+) -> list[float]:
     """
     Write channel routing data to a NetCDF file.
 
@@ -176,7 +179,7 @@ def write_netcdf_chrt(
         netcdf_cat_file_size (list): file size of output netcdf
     """
     if storage_type == "s3":
-        s3_client = boto3.session.Session().client("s3")
+        s3_client = boto3.session.Session().client("s3")  # type: ignore
         nc_filename = str(prefix) + "/" + name
     else:
         nc_filename = Path(prefix, name)

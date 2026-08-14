@@ -7,8 +7,8 @@ import xarray as xr
 import numpy as np
 import multiprocessing as mp
 from forcingprocessor.utils import normalize_vpu_id
-gpd.options.io_engine = "pyogrio"
 
+gpd.options.io_engine = "pyogrio"
 
 
 def rastersourceNexactextract(raster_data, geo_data):
@@ -114,7 +114,7 @@ def calc_weights_from_gdf(gdf: gpd.GeoDataFrame, raster_file: str, nf: str) -> d
     return weights
 
 
-def multiprocess_hf2ds(files: list, raster_template: str, max_procs: int):
+def multiprocess_hf2ds(files: list, raster_template: str, max_procs: int) -> tuple[pd.DataFrame, dict]:
 
     nprocs = min(len(files), max_procs)
     nf = len(files)
@@ -165,7 +165,7 @@ def multiprocess_hf2ds(files: list, raster_template: str, max_procs: int):
     return weights_df, jcatchment_dict
 
 
-def hf2ds(files: list, raster: str, nf):
+def hf2ds(files: list, raster: str, nf) -> tuple[pd.DataFrame, dict]:
     """
     Extracts the weights from a list of files
 

@@ -1,6 +1,6 @@
 import json
 import pandas as pd
-import argparse, os, json, sys, re
+import argparse, os, sys, re
 import requests
 import s3fs
 import gcsfs
@@ -14,7 +14,6 @@ import concurrent.futures as cf
 from datetime import datetime
 import gzip
 import tarfile, tempfile
-import s3fs
 import geopandas as gpd
 from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
 from forcingprocessor.plot_forcings import plot_ngen_forcings
@@ -34,22 +33,21 @@ from forcingprocessor.channel_routing_tools import (
 )
 from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_restart
 
-
 B2MB = 1048576
+ntasked = 0
 
-
-def distribute_work(items, nprocs):
+def distribute_work(items, nprocs_arg):
     """
     Distribute items evenly between processes, round robin
     """
-    items_per_proc = [0 for x in range(nprocs)]
+    items_per_proc = [0 for x in range(nprocs_arg)]
     for j in range(len(items)):
-        k = j % nprocs
+        k = j % nprocs_arg
         items_per_proc[k] = items_per_proc[k] + 1
     return items_per_proc
 
 
-def load_balance(items_per_proc, launch_delay, single_ex, exec_count):
+def load_balance(items_per_proc, launch_delay, single_ex, exec_count, ntasked_arg):
     """
     Python takes a couple seconds to launch a process so if this script is launched with 10's
     of processes, it may not be optimal to distribute the work evenly.
@@ -61,8 +59,7 @@ def load_balance(items_per_proc, launch_delay, single_ex, exec_count):
     exec_count     : number of items processed per execution
 
     """
-    nprocs = len(items_per_proc)
-    nitems = np.sum(items_per_proc)
+    nprocs_load_balance = len(items_per_proc)
     completion_time = [
         single_ex * x / exec_count + launch_delay * j
         for j, x in enumerate(items_per_proc)
@@ -87,16 +84,15 @@ def load_balance(items_per_proc, launch_delay, single_ex, exec_count):
     completion_time = [
         single_ex * x / exec_count + j for j, x in enumerate(items_per_proc)
     ]
-    global ntasked
     ntasked = len(np.nonzero(items_per_proc)[0])
-    if nprocs > ntasked:
+    if nprocs_load_balance > ntasked_arg:
         if ii_verbose:
             print(
-                f"Not enough work for {nprocs} requested processes, downsizing to {ntasked}"
+                f"Not enough work for {nprocs_load_balance} requested processes, downsizing to {ntasked}"
             )
-        nprocs = ntasked
-        completion_time = completion_time[:ntasked]
-        items_per_proc = items_per_proc[:ntasked]
+        nprocs_load_balance = ntasked_arg
+        completion_time = completion_time[:ntasked_arg]
+        items_per_proc = items_per_proc[:ntasked_arg]
     if ii_verbose:
         print(f"item distribution {items_per_proc}")
     return items_per_proc
@@ -121,7 +117,7 @@ def multiprocess_data_extract(files: list, nprocs: int, weights_df: pd.DataFrame
     files_per_cycle = 1
     files_per_proc = distribute_work(files, nprocs)
     files_per_proc = load_balance(
-        files_per_proc, launch_time, cycle_time, files_per_cycle
+        files_per_proc, launch_time, cycle_time, files_per_cycle, ntasked
     )
     nprocs = len(files_per_proc)
 
@@ -186,7 +182,7 @@ def multiprocess_chrt_extract(files: list, num_procs: int, mapping: dict, fs):
     files_per_cycle = 1
     files_per_proc = distribute_work(files, num_procs)
     files_per_proc = load_balance(
-        files_per_proc, launch_time, cycle_time, files_per_cycle
+        files_per_proc, launch_time, cycle_time, files_per_cycle, ntasked
     )
     num_procs = len(files_per_proc)
 
@@ -230,12 +226,12 @@ def forcing_grid2catchment(
     fs=None,
     ngen_variables=[],
     ngen_vars_plot=[],
-    weights_df=None,
+    weights_df: pd.DataFrame = pd.DataFrame(),
     window=[],
-    fs_type=None,
+    fs_type_arg: str = "",
     ii_verbose=False,
     ii_plot=False,
-    nts_plot=1,
+    nts_plot_arg=1,
 ):
     """
     Retrieve catchment level data from national water model files
@@ -246,10 +242,10 @@ def forcing_grid2catchment(
     ngen_variables: List of variables to read out of the nwm netcdf
     ngen_vars_plot: List of ngen variables to plot
     weights_df: dataframe of weights. weights are values 0-1 corresponding to the percentage an overlapping a grid point on a polygon
-    fs_type: type of file system
+    fs_type_arg: type of file system
     ii_verbose: verbosity
     ii_plot: save data for plotting
-    nts_plot: number of time steps to include in gif
+    nts_plot_arg: number of time steps to include in gif
 
     Outputs: [data_list, t_list, nwm_data]
     data_list : list of ngen forcings ordered in time. ngen_forcings : 2d darray (forcing_variable x catchment)
@@ -276,12 +272,12 @@ def forcing_grid2catchment(
     dx = x_max - x_min + 1
     dy = y_max - y_min + 1
 
-    if fs_type == "google":
+    if fs_type_arg == "google":
         fs = gcsfs.GCSFileSystem()
-    id = os.getpid()
+    process_id = os.getpid()
     if ii_verbose:
         print(
-            f"Process #{id} extracting data from {nfiles} files", end=None, flush=True
+            f"Process #{process_id} extracting data from {nfiles} files", end=None, flush=True
         )
     data_list = []
     nwm_file_sizes_MB = []
@@ -293,14 +289,14 @@ def forcing_grid2catchment(
             else:
                 bucket_key = nwm_file
             file_obj = fs.open(bucket_key, mode="rb")
-            nwm_file_sizes_MB.append(file_obj.details["size"])
+            nwm_file_sizes_MB.append(file_obj.details["size"]) # type: ignore
         elif "https://" in nwm_file:
-            response = requests.get(nwm_file)
+            response = requests.get(nwm_file, timeout=10)
 
             if response.status_code == 200:
                 file_obj = BytesIO(response.content)
             else:
-                raise Exception(f"{nwm_file} does not exist")
+                raise FileNotFoundError(f"{nwm_file} does not exist")
             nwm_file_sizes_MB.append(len(response.content) / B2MB)
         else:
             file_obj = nwm_file
@@ -349,7 +345,7 @@ def forcing_grid2catchment(
                     time_splt = nwm_data.attrs["model_output_valid_time"].split("_")
                     t = time_splt[0] + " " + time_splt[1]
             t_list.append(t)
-            if ii_plot and j < nts_plot:
+            if ii_plot and j < nts_plot_arg:
                 nwm_data_plot.append(data_allvars[jplot_vars, :, :])
         del nwm_data
         tfill += time.perf_counter() - t0
@@ -364,8 +360,8 @@ def forcing_grid2catchment(
             coverage = np.array(row.coverage)
             coverage_mat = np.repeat(coverage[None, :], nvar, axis=0)
 
-            weights_dx, weights_dy = np.unravel_index(
-                weights, (shp[2], shp[1]), order="F"
+            weights_dx, *weights_dy = np.unravel_index(
+                weights, (shp[2], shp[1]), order="F" # type: ignore
             )
             weights_dx_shifted = list(weights_dx - x_min)
             weights_dy_shifted = list(weights_dy - y_min)
@@ -394,13 +390,13 @@ def forcing_grid2catchment(
 
     if ii_verbose:
         print(
-            f"Process #{id} completed data extraction, returning data to primary process",
+            f"Process #{process_id} completed data extraction, returning data to primary process",
             flush=True,
         )
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
 
-def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_type):
+def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_type, ntasked_arg):
     """
     Sets up the process pool for write_data_df.
 
@@ -425,14 +421,14 @@ def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_
     catchments_per_cycle = 200
     catchments_per_proc = distribute_work(catchments, nprocs)
     catchments_per_proc = load_balance(
-        catchments_per_proc, launch_time, cycle_time, catchments_per_cycle
+        catchments_per_proc, launch_time, cycle_time, catchments_per_cycle, ntasked_arg
     )
 
-    ntasked = len(np.nonzero(catchments_per_proc)[0])
-    if nprocs > ntasked:
+    ntasked_arg = len(np.nonzero(np.array(catchments_per_proc))[0])
+    if nprocs > ntasked_arg:
         if ii_verbose:
             print(
-                f"Not enough work for {nprocs} requested processes, downsizing to {ntasked}"
+                f"Not enough work for {nprocs} requested processes, downsizing to {ntasked_arg}"
             )
 
     ncatchments = len(catchments)
@@ -452,7 +448,7 @@ def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_
         worker_catchments[jcatch] = jcatch
         count += 1
         if count == catchments_per_proc[i] or j == ncatchments - 1:
-            if len(worker_catchment_list) == ntasked - 1:
+            if len(worker_catchment_list) == ntasked_arg - 1:
                 ii_print = True
 
             end = min(start + catchments_per_proc[i], ncatchments)
@@ -490,7 +486,7 @@ def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_
             [ii_verbose for x in range(nprocs)],
             [storage_type for x in range(nprocs)],
             [output_file_type for x in range(nprocs)],
-            [ntasked for x in range(nprocs)],
+            [ntasked_arg for x in range(nprocs)],
             [data_source_type for x in range(nprocs)],
         ):
             ids.append(results[0])
@@ -525,7 +521,7 @@ def write_data_df(
     ii_verbose,
     storage_type,
     output_file_type,
-    ntasked,
+    ntasked_arg,
     data_source_arg,
 ):
     """
@@ -546,7 +542,7 @@ def write_data_df(
         file_zipped_size_MB: List containing the size of each zipped file in MB
         tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
     """
-    s3_client = boto3.session.Session().client("s3")
+    s3_client = boto3.session.Session().client("s3") # type: ignore
     nfiles = len(catchments)
     id = os.getpid()
     forcing_cat_ids = []
@@ -561,6 +557,8 @@ def write_data_df(
         bucket, key_prefix = convert_url2key(out_path, storage_type)
 
     t00 = time.perf_counter()
+    file_size_MB = 0
+    file_zipped_size_MB = 0
     for j, jcatch in enumerate(catchments):
         t0 = time.perf_counter()
         if data_source_arg == "forcings":
@@ -641,12 +639,12 @@ def write_data_df(
         if ii_print and ii_verbose:
             if (j + 1) % write_int == 0 or j == nfiles - 1:
                 t_accum = time.perf_counter() - t00
-                rate = (j + 1) * ntasked / t_accum
+                rate = (j + 1) * ntasked_arg / t_accum
                 bytes2bits = 8
-                bandwidth_Mbps = rate * file_size_MB * ntasked * bytes2bits
-                estimate_total_time = nfiles * ntasked / rate
+                bandwidth_Mbps = rate * file_size_MB * ntasked_arg * bytes2bits
+                estimate_total_time = nfiles * ntasked_arg / rate
                 report_usage()
-                msg = f"\n{(j + 1) * ntasked} dataframes converted out of {nfiles * ntasked}\n"
+                msg = f"\n{(j + 1) * ntasked_arg} dataframes converted out of {nfiles * ntasked_arg}\n"
                 msg += f"rate             {rate:.2f} files/s\n"
                 msg += f"df conversion    {t_df:.2f}s\n"
                 msg += f"estimated total write time {estimate_total_time:.2f}s\n"
@@ -762,7 +760,7 @@ def write_netcdf(
         None
     """
     if storage_type == "s3":
-        s3_client = boto3.session.Session().client("s3")
+        s3_client = boto3.session.Session().client("s3") # type: ignore
         nc_filename = prefix + "/" + filename
     else:
         nc_filename = Path(prefix, filename)
@@ -772,37 +770,38 @@ def write_netcdf(
         [datetime.timestamp(datetime.strptime(jt, "%Y-%m-%d %H:%M:%S")) for jt in t_ax],
         dtype=np.float64,
     )
-    catchments = np.array(catchments, dtype="str")
+    catchments_array = np.array(catchments, dtype="str")
     if storage_type == "s3":
         bucket, key = convert_url2key(nc_filename, "s3")
         with tempfile.NamedTemporaryFile(suffix=".nc") as tmpfile:
-            make_forcing_netcdf(tmpfile.name, catchments, t_utc, data)
+            make_forcing_netcdf(tmpfile.name, catchments_array, t_utc, data)
             netcdf_cat_file_size = os.path.getsize(tmpfile.name) / B2MB
             tmpfile.flush()
             tmpfile.seek(0)
             print(f"Uploading netcdf forcings to S3: bucket={bucket}, key={key}")
             s3_client.upload_file(tmpfile.name, bucket, key)
     else:
-        make_forcing_netcdf(nc_filename, catchments, t_utc, data)
+        make_forcing_netcdf(nc_filename, catchments_array, t_utc, data)
         print(f"netcdf has been written to {nc_filename}")
         netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
     return netcdf_cat_file_size
 
 
 def multiprocess_write_netcdf(
-    data: np.ndarray, jcatchment_dict: dict, t_ax: np.ndarray
+    data: np.ndarray, jcatchment_dict: dict, t_ax: list, urlbase: str
 ):
     """
     Write DataFrames to tar archives using multiprocessing.
 
     Parameters:
-        data (numpy.ndarray): 3D array with dimensions (catchment-id, time, forcing variable).
+        data (np.ndarray): 3D array with dimensions (catchment-id, time, forcing variable).
         jcatchment_dict (dict): Dictionary containing catchment chunks.
         t_ax (numpy.ndarray): Array representing time axis.
 
     Returns:
         None
     """
+
     i = 0
     k = 0
     data_list = []
@@ -819,7 +818,7 @@ def multiprocess_write_netcdf(
             filenames.append(f"{jvpu}_forcings.nc")
         else:
             filenames.append(
-                f"ngen.{FCST_CYCLE}z.{URLBASE}.forcing.{LEAD_START}_{LEAD_END}.{jvpu}.nc"
+                f"ngen.{FCST_CYCLE}z.{urlbase}.forcing.{LEAD_START}_{LEAD_END}.{jvpu}.nc"
             )
         i = k
 
@@ -892,15 +891,16 @@ def calculate_vpu_precip_stats(data_array, catchment_ids, jcatchment_dict):
 
     return pd.DataFrame(rows)
 
+
 def write_df(
     df: pd.DataFrame,
     filename: str,
     storage_type: str,
     data_source_arg: str,
-    client: boto3.client = None,
-    bucket: str = None,
-    key_prefix: str = None,
-    local_path: str = None,
+    client: boto3.client = None, # type: ignore
+    bucket: str = "",
+    key_prefix: str = "",
+    local_path: Path | None = None,
 ):
     """
     Write a DataFrame to S3 or local storage as a CSV or Parquet file.
@@ -916,6 +916,9 @@ def write_df(
         key_prefix (str, optional): S3 key prefix (folder path).
         local_path (str, optional): Local directory path.
     """
+    if local_path is None:
+        local_path = Path("")
+
     ext = Path(filename).suffix.lower()
     if ext == ".csv":
         if storage_type == "s3":
@@ -997,38 +1000,8 @@ def prep_ngen_data(conf):
     routelink_file_path = conf["forcing"].get("routelink_file", None)
     if map_file_path:  # NWM to NGEN channel routing processing requires json map
         data_source = "channel_routing"
-        if "s3://" in map_file_path:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(map_file_path, "r") as map_file:
-                full_nwm_ngen_map = json.load(map_file)
-        else:
-            with open(map_file_path, "r", encoding="utf-8") as map_file:
-                full_nwm_ngen_map = json.load(map_file)
     elif restart_map_file_path:
         data_source = "troute_restarts"
-
-        if "s3://" in restart_map_file_path:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(restart_map_file_path, "r") as map_file:
-                cat_map = json.load(map_file)
-        else:
-            with open(restart_map_file_path, "r", encoding="utf-8") as map_file:
-                cat_map = json.load(map_file)
-
-        if "s3://" in crosswalk_file_path:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(crosswalk_file_path, "rb") as crosswalk_file:
-                crosswalk_ds = xr.open_dataset(crosswalk_file).load()
-        else:
-            crosswalk_ds = xr.open_dataset(crosswalk_file_path).load()
-
-        if "s3://" in routelink_file_path:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(routelink_file_path, "rb") as routelink_file:
-                routelink_ds = xr.open_dataset(routelink_file).load()
-        else:
-            routelink_ds = xr.open_dataset(routelink_file_path).load()
-
     else:
         data_source = "forcings"
 
@@ -1039,7 +1012,11 @@ def prep_ngen_data(conf):
     global ii_verbose, nprocs
     ii_verbose = conf["run"].get("verbose", False)
     ii_collect_stats = conf["run"].get("collect_stats", True)
-    nprocs = conf["run"].get("nprocs", int(os.cpu_count() * 0.5))
+
+    cpu_count = os.cpu_count()
+    if cpu_count is None:
+        cpu_count = 1
+    nprocs = conf["run"].get("nprocs", int(cpu_count * 0.5))
 
     global ii_plot, nts_plot, ngen_vars_plot
     ii_plot = conf.get("plot", False)
@@ -1068,12 +1045,12 @@ def prep_ngen_data(conf):
 
     file_types = ["csv", "parquet", "tar", "netcdf"]
     for jtype in output_file_type:
-        assert jtype in file_types, (
-            f"{jtype} for output_file_type is not accepted! Accepted: {file_types}"
-        )
-        assert not ("parquet" in output_file_type and "csv" in output_file_type), (
-            "Both parquet and csv cannot be simultaneously specified in output_file_type, pick one."
-        )
+        assert (
+            jtype in file_types
+        ), f"{jtype} for output_file_type is not accepted! Accepted: {file_types}"
+        assert not (
+            "parquet" in output_file_type and "csv" in output_file_type
+        ), "Both parquet and csv cannot be simultaneously specified in output_file_type, pick one."
     global storage_type
     if "s3://" in output_path:
         storage_type = "s3"
@@ -1121,6 +1098,13 @@ def prep_ngen_data(conf):
         tw = time.perf_counter()
         if ii_verbose:
             print("Reading NWM to NGEN map\n", flush=True)
+        if "s3://" in map_file_path:
+            s3 = s3fs.S3FileSystem(anon=True)
+            with s3.open(map_file_path, "r") as map_file:
+                full_nwm_ngen_map = json.load(map_file)
+        else:
+            with open(map_file_path, "r", encoding="utf-8") as map_file:
+                full_nwm_ngen_map = json.load(map_file)
         gpkg = gpd.read_file(gpkg_files[0], layer="nexus")
         catchments = gpkg["id"].to_list()
         nwm_ngen_map = {}
@@ -1200,6 +1184,7 @@ def prep_ngen_data(conf):
     # Extract forecast cycle and lead time from the first and last file names
     global URLBASE, FCST_CYCLE, LEAD_START, LEAD_END
     match = re.search(pattern, nwm_forcing_files[0])
+    URLBASE = "unknown_urlbase"
     FCST_CYCLE = None
     LEAD_START = None
     LEAD_END = None
@@ -1219,12 +1204,6 @@ def prep_ngen_data(conf):
             print(
                 f"Could not extract lead end from the last NWM forcing file: {nwm_forcing_files[-1]}"
             )
-    else:
-        if match:
-            restart_date = match.group(1)
-            restart_hour = match.group(2)
-        else:
-            print("Could not extract restart date and time")
 
     # Determine the file system type based on the first NWM forcing file
     global fs_type
@@ -1251,10 +1230,9 @@ def prep_ngen_data(conf):
     t0 = time.perf_counter()
     if ii_verbose:
         print(f"Entering data extraction...\n", flush=True)
-    # data_array, t_ax, nwm_data, nwm_file_sizes_MB = forcing_grid2catchment(nwm_forcing_files, fs)
-    # data_array=data_array[0][None,:]
-    # t_ax = t_ax
-    # nwm_data=nwm_data[0][None,:]
+
+    restart_array = xr.Dataset()
+    nwm_data = np.empty([])
     if data_source == "forcings" or data_source == "channel_routing":
         if data_source == "forcings":
             data_array, t_ax, nwm_data, nwm_file_sizes_MB = multiprocess_data_extract(
@@ -1285,7 +1263,7 @@ def prep_ngen_data(conf):
                 flush=True,
             )
 
-    else:
+    elif data_source == "troute_restarts":
         nwm_file = nwm_forcing_files[0]
         nwm_file_sizes_MB = []
         if fs_type == "google":
@@ -1294,13 +1272,14 @@ def prep_ngen_data(conf):
             fs_arg = s3fs.S3FileSystem(anon=True)
         else:
             fs_arg = None
+
         if fs_arg:
             if nwm_file.find("https://") >= 0:
                 _, bucket_key = convert_url2key(nwm_file, fs_type)
             else:
                 bucket_key = nwm_file
             file_obj = fs_arg.open(bucket_key, mode="rb")
-            nwm_file_sizes_MB.append(file_obj.details["size"])
+            nwm_file_sizes_MB.append(file_obj.details["size"]) # type: ignore
         elif "https://" in nwm_file:
             response = requests.get(nwm_file, timeout=10)
 
@@ -1313,8 +1292,30 @@ def prep_ngen_data(conf):
             file_obj = nwm_file
             nwm_file_sizes_MB.append(os.path.getsize(nwm_file) / B2MB)
 
+        if "s3://" in restart_map_file_path:
+            s3_reader = s3fs.S3FileSystem(anon=True)
+            with s3_reader.open(restart_map_file_path, "r") as map_file:
+                cat_map = json.load(map_file)
+        else:
+            with open(restart_map_file_path, "r", encoding="utf-8") as map_file:
+                cat_map = json.load(map_file)
+
+        if "s3://" in crosswalk_file_path:
+            s3_reader = s3fs.S3FileSystem(anon=True)
+            with s3_reader.open(crosswalk_file_path, "rb") as crosswalk_file:
+                crosswalk_ds = xr.open_dataset(crosswalk_file).load()
+        else:
+            crosswalk_ds = xr.open_dataset(crosswalk_file_path).load()
+
+        if "s3://" in routelink_file_path:
+            s3_reader = s3fs.S3FileSystem(anon=True)
+            with s3_reader.open(routelink_file_path, "rb") as routelink_file:
+                routelink_ds = xr.open_dataset(routelink_file).load()
+        else:
+            routelink_ds = xr.open_dataset(routelink_file_path).load()
+
         nwm_ds = xr.open_dataset(file_obj).load()
-        data_array = create_restart(cat_map, crosswalk_ds, nwm_ds, routelink_ds)
+        restart_array = create_restart(cat_map, crosswalk_ds, nwm_ds, routelink_ds)
 
     log_time("PROCESSING_END", log_file)
 
@@ -1323,7 +1324,7 @@ def prep_ngen_data(conf):
     if "netcdf" in output_file_type:
         if data_source == "forcings":
             netcdf_cat_file_sizes_MB = multiprocess_write_netcdf(
-                data_array, jcatchment_dict, t_ax
+                data_array, jcatchment_dict, t_ax, URLBASE
             )
         elif data_source == "channel_routing":
             if FCST_CYCLE is None:
@@ -1333,16 +1334,28 @@ def prep_ngen_data(conf):
             netcdf_cat_file_sizes_MB = write_netcdf_chrt(
                 storage_type, forcing_path, data_array, t_ax, filename
             )
-        else:
+        elif data_source == "troute_restarts":
+            if match:
+                restart_date = match.group(1)
+                restart_hour = match.group(2)
+            else:
+                print("Could not extract restart date and time")
+                restart_date = "unknown_date"
+                restart_hour = "unknown_hour"
             filename = (
                 "channel_restart_" + restart_date + "_" + restart_hour + "0000.nc"
             )
             netcdf_cat_file_sizes_MB = write_netcdf_restart(
-                storage_type, forcing_path, data_array, filename
+                storage_type, forcing_path, restart_array, filename
             )
         # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
     if ii_verbose:
         print(f"Writing catchment forcings to {output_path}!", end=None, flush=True)
+
+    individual_cat_file_sizes_MB = []
+    individual_cat_file_sizes_MB_zipped = []
+    filenames = []
+    tar_buffs = []
     if (
         ii_plot
         or ii_collect_stats
@@ -1362,6 +1375,7 @@ def prep_ngen_data(conf):
                 nprocs,
                 forcing_path,
                 data_source,
+                ntasked
             )
         elif data_source == "channel_routing":
             (
@@ -1377,6 +1391,7 @@ def prep_ngen_data(conf):
                 nprocs,
                 forcing_path,
                 data_source,
+                ntasked
             )
         else:
             print("Dataframes don't get written for t-route restarts")
@@ -1409,7 +1424,7 @@ def prep_ngen_data(conf):
                 ]
             )
             if storage_type == "s3":
-                gif_out = "./GIFs"
+                gif_out = Path("./GIFs")
             else:
                 gif_out = Path(meta_path, "GIFs")
             plot_ngen_forcings(
@@ -1570,8 +1585,9 @@ def prep_ngen_data(conf):
             meta_bucket = bucket
         else:
             local_metapath = metaf_path
+            meta_key = ""
+            meta_bucket = ""
 
-       
         if data_source == "forcings":
             # Issue 9: write compact VPU-level precipitation statistics.
             write_df(
@@ -1655,7 +1671,8 @@ def prep_ngen_data(conf):
     if storage_type == "s3":
         bucket, key = convert_url2key(metaf_path, storage_type)
         log_path = key + "/profile_fp.txt"
-        s3.upload_file(f"./profile_fp.txt", bucket, log_path)
+        s3 = boto3.client("s3")
+        s3.upload_file("./profile_fp.txt", bucket, log_path)
     else:
         os.system(f"mv ./profile_fp.txt {metaf_path}")
 
