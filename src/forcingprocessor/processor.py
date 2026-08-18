@@ -9,6 +9,7 @@ import numpy as np
 import xarray as xr
 import time
 import boto3
+from typing import Tuple
 from io import BytesIO, TextIOWrapper
 import concurrent.futures as cf
 from datetime import datetime
@@ -34,7 +35,6 @@ from forcingprocessor.channel_routing_tools import (
 from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_restart
 
 B2MB = 1048576
-ntasked = 0
 
 def distribute_work(items, nprocs_arg):
     """
@@ -44,10 +44,13 @@ def distribute_work(items, nprocs_arg):
     for j in range(len(items)):
         k = j % nprocs_arg
         items_per_proc[k] = items_per_proc[k] + 1
+
+    print("distribute work")
+    print(items_per_proc)
     return items_per_proc
 
 
-def load_balance(items_per_proc, launch_delay, single_ex, exec_count, ntasked_arg):
+def load_balance(files_per_proc, launch_delay, single_ex, exec_count) -> Tuple[list[int], int]:
     """
     Python takes a couple seconds to launch a process so if this script is launched with 10's
     of processes, it may not be optimal to distribute the work evenly.
@@ -59,6 +62,7 @@ def load_balance(items_per_proc, launch_delay, single_ex, exec_count, ntasked_ar
     exec_count     : number of items processed per execution
 
     """
+    items_per_proc = files_per_proc
     nprocs_load_balance = len(items_per_proc)
     completion_time = [
         single_ex * x / exec_count + launch_delay * j
@@ -85,17 +89,18 @@ def load_balance(items_per_proc, launch_delay, single_ex, exec_count, ntasked_ar
         single_ex * x / exec_count + j for j, x in enumerate(items_per_proc)
     ]
     ntasked = len(np.nonzero(items_per_proc)[0])
-    if nprocs_load_balance > ntasked_arg:
+    if nprocs_load_balance > ntasked:
         if ii_verbose:
             print(
                 f"Not enough work for {nprocs_load_balance} requested processes, downsizing to {ntasked}"
             )
-        nprocs_load_balance = ntasked_arg
-        completion_time = completion_time[:ntasked_arg]
-        items_per_proc = items_per_proc[:ntasked_arg]
+        nprocs_load_balance = ntasked
+        completion_time = completion_time[:ntasked]
+        items_per_proc = items_per_proc[:ntasked]
+        print(f"item distribution {items_per_proc}")
     if ii_verbose:
         print(f"item distribution {items_per_proc}")
-    return items_per_proc
+    return items_per_proc, ntasked
 
 
 def multiprocess_data_extract(files: list, nprocs: int, weights_df: pd.DataFrame, fs):
@@ -117,7 +122,7 @@ def multiprocess_data_extract(files: list, nprocs: int, weights_df: pd.DataFrame
     files_per_cycle = 1
     files_per_proc = distribute_work(files, nprocs)
     files_per_proc = load_balance(
-        files_per_proc, launch_time, cycle_time, files_per_cycle, ntasked
+        files_per_proc, launch_time, cycle_time, files_per_cycle
     )
     nprocs = len(files_per_proc)
 
@@ -182,9 +187,11 @@ def multiprocess_chrt_extract(files: list, num_procs: int, mapping: dict, fs):
     files_per_cycle = 1
     files_per_proc = distribute_work(files, num_procs)
     files_per_proc = load_balance(
-        files_per_proc, launch_time, cycle_time, files_per_cycle, ntasked
+        files_per_proc, launch_time, cycle_time, files_per_cycle
     )
     num_procs = len(files_per_proc)
+
+    print(files_per_proc)
 
     start = 0
     nfiles = len(files)
@@ -396,7 +403,7 @@ def forcing_grid2catchment(
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
 
-def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_type, ntasked_arg):
+def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_type):
     """
     Sets up the process pool for write_data_df.
 
@@ -421,14 +428,14 @@ def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_
     catchments_per_cycle = 200
     catchments_per_proc = distribute_work(catchments, nprocs)
     catchments_per_proc = load_balance(
-        catchments_per_proc, launch_time, cycle_time, catchments_per_cycle, ntasked_arg
+        catchments_per_proc, launch_time, cycle_time, catchments_per_cycle
     )
 
-    ntasked_arg = len(np.nonzero(np.array(catchments_per_proc))[0])
-    if nprocs > ntasked_arg:
+    ntasked = len(np.nonzero(np.array(catchments_per_proc))[0])
+    if nprocs > ntasked:
         if ii_verbose:
             print(
-                f"Not enough work for {nprocs} requested processes, downsizing to {ntasked_arg}"
+                f"Not enough work for {nprocs} requested processes, downsizing to {ntasked}"
             )
 
     ncatchments = len(catchments)
@@ -448,7 +455,7 @@ def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_
         worker_catchments[jcatch] = jcatch
         count += 1
         if count == catchments_per_proc[i] or j == ncatchments - 1:
-            if len(worker_catchment_list) == ntasked_arg - 1:
+            if len(worker_catchment_list) == ntasked - 1:
                 ii_print = True
 
             end = min(start + catchments_per_proc[i], ncatchments)
@@ -486,7 +493,7 @@ def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_
             [ii_verbose for x in range(nprocs)],
             [storage_type for x in range(nprocs)],
             [output_file_type for x in range(nprocs)],
-            [ntasked_arg for x in range(nprocs)],
+            [ntasked for x in range(nprocs)],
             [data_source_type for x in range(nprocs)],
         ):
             ids.append(results[0])
@@ -1375,7 +1382,6 @@ def prep_ngen_data(conf):
                 nprocs,
                 forcing_path,
                 data_source,
-                ntasked
             )
         elif data_source == "channel_routing":
             (
@@ -1391,7 +1397,6 @@ def prep_ngen_data(conf):
                 nprocs,
                 forcing_path,
                 data_source,
-                ntasked
             )
         else:
             print("Dataframes don't get written for t-route restarts")
