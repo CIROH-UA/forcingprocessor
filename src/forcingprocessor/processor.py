@@ -26,12 +26,14 @@ from forcingprocessor.utils import (
     report_usage,
     nwm_variables,
     ngen_variables,
+    normalize_vpu_id,
 )
 from forcingprocessor.channel_routing_tools import (
     channelrouting_nwm2ngen,
     write_netcdf_chrt,
 )
 from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_restart
+
 
 B2MB = 1048576
 
@@ -302,7 +304,7 @@ def forcing_grid2catchment(
             nwm_file_sizes_MB.append(len(response.content) / B2MB)
         else:
             file_obj = nwm_file
-            nwm_file_sizes_MB = os.path.getsize(nwm_file / B2MB)
+            nwm_file_sizes_MB.append(os.path.getsize(nwm_file) / B2MB)
 
         topen += time.perf_counter() - t0
         t0 = time.perf_counter()
@@ -312,7 +314,9 @@ def forcing_grid2catchment(
             shp = nwm_data["U2D"].shape
             data_allvars = np.zeros(shape=(nvar, dy, dx), dtype=np.float64)
             for var_dx, jvar in enumerate(nwm_variables):
-                if "retrospective-2-1" in nwm_file:
+                if "retrospective-2-1" in nwm_file or (
+                    "south_north" in nwm_data.dims and "west_east" in nwm_data.dims
+                ):
                     data_allvars[var_dx, :, :] = np.flip(
                         np.squeeze(
                             nwm_data[jvar]
@@ -836,6 +840,58 @@ def multiprocess_write_netcdf(
     return netcdf_cat_file_sizes
 
 
+def calculate_vpu_precip_stats(data_array, catchment_ids, jcatchment_dict):
+    """
+    Calculate compact precipitation statistics for each VPU.
+
+    Parameters
+    ----------
+    data_array : np.ndarray
+        Forcing data with dimensions (time, variable, catchment).
+    catchment_ids : list
+        Catchment IDs corresponding to the catchment axis of data_array.
+    jcatchment_dict : dict
+        Mapping of VPU IDs to catchment IDs.
+
+    Returns
+    -------
+    pd.DataFrame
+        One row per VPU containing precipitation summary statistics.
+    """
+    precip_idx = ngen_variables.index("precip_rate")
+    catchment_index = {
+        str(catchment_id): i for i, catchment_id in enumerate(catchment_ids)
+    }
+
+    rows = []
+
+    for vpu_id, vpu_catchments in jcatchment_dict.items():
+        indices = [
+            catchment_index[str(catchment_id)]
+            for catchment_id in vpu_catchments
+            if str(catchment_id) in catchment_index
+        ]
+
+        if not indices:
+            continue
+
+        precip = data_array[:, precip_idx, indices]
+
+        rows.append(
+            {
+                "vpu_id": vpu_id,
+                "precip_min": float(np.min(precip)),
+                "precip_max": float(np.max(precip)),
+                "precip_mean": float(np.mean(precip)),
+                "precip_sum": float(np.sum(precip)),
+                "precip_nonzero_fraction": float(
+                    np.count_nonzero(precip) / precip.size
+                ),
+            }
+        )
+
+    return pd.DataFrame(rows)
+
 def write_df(
     df: pd.DataFrame,
     filename: str,
@@ -928,6 +984,22 @@ def prep_ngen_data(conf):
         weights_files = weights_file
     else:
         weights_files = [weights_file]
+
+    # Issue 9: optional explicit VPU ids for multi-gpkg / multi-weight runs.
+    # If forcing.vpu_id is not supplied, infer ids from filenames.
+    vpu_ids = conf["forcing"].get("vpu_id", None)
+
+    if vpu_ids is None:
+        vpu_ids = [normalize_vpu_id(x) for x in gpkg_files]
+    elif type(vpu_ids) is not list:
+        vpu_ids = [vpu_ids]
+
+    vpu_ids = [normalize_vpu_id(x) for x in vpu_ids]
+
+    if len(vpu_ids) != len(gpkg_files):
+        raise ValueError(
+            "Length of forcing.vpu_id must match length of forcing.gpkg_file"
+        )
 
     map_file_path = conf["forcing"].get("map_file", None)
     restart_map_file_path = conf["forcing"].get("restart_map_file", None)
@@ -1503,25 +1575,12 @@ def prep_ngen_data(conf):
             }
 
         if data_source == "forcings":
-            data_avg = np.average(data_array, axis=0)
-            avg_df = pd.DataFrame(data_avg.T, columns=ngen_variables)
-            avg_df.insert(0, "catchment id", forcing_cat_ids)
 
-            data_med = np.median(data_array, axis=0)
-            med_df = pd.DataFrame(data_med.T, columns=ngen_variables)
-            med_df.insert(0, "catchment id", forcing_cat_ids)
-        elif data_source == "channel_routing":
-            data_avg = np.average(data_array[:, :, 1], axis=0)
-            avg_df = pd.DataFrame(data_avg.T, columns=["q_lateral"])
-            avg_df.insert(0, "nexus id", list(nwm_ngen_map.keys()))
-
-            data_med = np.median(data_array[:, :, 1], axis=0)
-            med_df = pd.DataFrame(data_med.T, columns=["q_lateral"])
-            med_df.insert(0, "nexus id", list(nwm_ngen_map.keys()))
-        else:
-            # troute restarts won't need stats calculated for them since there's no time axis
-            avg_df = pd.DataFrame()
-            med_df = pd.DataFrame()
+            vpu_precip_df = calculate_vpu_precip_stats(
+                data_array,
+                list(weights_df.index),
+                jcatchment_dict,
+            )
 
         del data_array
 
@@ -1537,6 +1596,19 @@ def prep_ngen_data(conf):
         else:
             local_metapath = metaf_path
 
+        if data_source == "forcings":
+            # Issue 9: write compact VPU-level precipitation statistics.
+            write_df(
+                vpu_precip_df,
+                "metadata_by_vpu.csv",
+                storage_type,
+                data_source_arg="na",
+                local_path=local_metapath,
+                key_prefix=meta_key,
+                bucket=meta_bucket,
+                client=s3,
+            )
+
         write_df(
             metadata_df,
             "metadata.csv",
@@ -1547,28 +1619,6 @@ def prep_ngen_data(conf):
             bucket=meta_bucket,
             client=s3,
         )
-        if not avg_df.empty:
-            write_df(
-                avg_df,
-                "catchments_avg.csv",
-                storage_type,
-                data_source_arg="na",
-                local_path=local_metapath,
-                key_prefix=meta_key,
-                bucket=meta_bucket,
-                client=s3,
-            )
-        if not med_df.empty:
-            write_df(
-                med_df,
-                "catchments_median.csv",
-                storage_type,
-                data_source_arg="na",
-                local_path=local_metapath,
-                key_prefix=meta_key,
-                bucket=meta_bucket,
-                client=s3,
-            )
 
         meta_time = time.perf_counter() - t000
         log_time("METADATA_END", log_file)

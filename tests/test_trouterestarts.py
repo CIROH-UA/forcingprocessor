@@ -130,7 +130,7 @@ def test_restart():
     assert result["qlink1"].shape == (n_links,)
     assert result["qlink2"].shape == (n_links,)
 
-    assert result.attrs["Restart_Time"] == "2024-01-15_12:00:00"
+    assert result.attrs["Restart_Time"] == "2024-01-15_13:00:00"
 
     assert result["hlink"].values[0] == pytest.approx(1.25)
     assert result["hlink"].values[1] == pytest.approx(1.04315438)

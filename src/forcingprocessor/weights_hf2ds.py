@@ -1,12 +1,14 @@
-import json, re, argparse, time, requests, os
+import json, argparse, time, requests, os
 from io import BytesIO
 import geopandas as gpd
 import concurrent.futures as cf
 import pandas as pd
 import xarray as xr
 import numpy as np
-
+import multiprocessing as mp
+from forcingprocessor.utils import normalize_vpu_id
 gpd.options.io_engine = "pyogrio"
+
 
 
 def rastersourceNexactextract(raster_data, geo_data):
@@ -100,7 +102,10 @@ def calc_weights_from_gdf(gdf: gpd.GeoDataFrame, raster_file: str, nf: str) -> d
     print(f"Performing multiprocess exactextract", flush=True)
     output_list = []
     raster_list = [raster_data for x in range(nprocs)]
-    with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
+    with cf.ProcessPoolExecutor(
+        max_workers=nprocs,
+        mp_context=mp.get_context("spawn"),
+    ) as pool:
         for results in pool.map(rastersourceNexactextract, raster_list, geo_df_list):
             output_list.append(results)
     print(f"Concatenating results", flush=True)
@@ -127,7 +132,10 @@ def multiprocess_hf2ds(files: list, raster_template: str, max_procs: int):
 
     weight_dfs = []
     jcatchment_dicts = []
-    with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
+    with cf.ProcessPoolExecutor(
+        max_workers=nprocs,
+        mp_context=mp.get_context("spawn"),
+    ) as pool:
         for results in pool.map(
             hf2ds,
             files_list,
@@ -139,9 +147,20 @@ def multiprocess_hf2ds(files: list, raster_template: str, max_procs: int):
 
     weights_df = pd.concat(weight_dfs)
 
-    print(f"Processes have returned", flush=True)
+    print("Processes have returned", flush=True)
+
     jcatchment_dict = {}
-    [jcatchment_dict.update(x) for x in jcatchment_dicts]
+
+    for process_dict in jcatchment_dicts:
+        for key, catchments in process_dict.items():
+            unique_key = key
+            suffix = 1
+
+            while unique_key in jcatchment_dict:
+                unique_key = f"{key}_{suffix}"
+                suffix += 1
+
+            jcatchment_dict[unique_key] = catchments
 
     return weights_df, jcatchment_dict
 
@@ -162,13 +181,11 @@ def hf2ds(files: list, raster: str, nf):
     count = 0
     weights_dfs = []
     for jgpkg in files:
-        pattern = r"(?i)vpu[-_](\d{2}[A-Z]?)"
-        match = re.search(pattern, jgpkg)
-        if match:
-            jname = "VPU_" + match.group(1)
-        else:
+        jname = normalize_vpu_id(jgpkg)
+        if jname in jcatchment_dict:
             count += 1
-            jname = str(count)
+            jname = f"{jname}_{count}"
+
         jweights_df = hydrofabric2datastream_weights(jgpkg, raster, nf)
         weights_dfs.append(jweights_df)
         jcatchment_dict[jname] = list(jweights_df.index)
@@ -195,6 +212,8 @@ def hydrofabric2datastream_weights(
     # Need to handle each situation.
 
     t0 = time.perf_counter()
+
+    weights_file = str(weights_file)
 
     if weights_file.endswith(".json"):
         with open(weights_file, "r") as fp:
@@ -238,10 +257,12 @@ def hydrofabric2datastream_weights(
             weights_df = weights_df.rename(columns={"coverage_fraction": "coverage"})
             ncatchment = len(weights_df)
 
+    ncatchment = len(weights_df)
     tf = time.perf_counter()
     dt = tf - t0
+    rate = ncatchment / dt if dt > 0 else float("inf")
     print(
-        f"{weights_file} {ncatchment} catchment weights obtained {dt:.2f} seconds total, {ncatchment / dt:.2f} catchments/second",
+        f"{weights_file} {ncatchment} catchment weights obtained {dt:.2f} seconds total, {rate:.2f} catchments/second",
         flush=True,
     )
     return weights_df
