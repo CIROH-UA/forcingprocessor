@@ -1531,31 +1531,12 @@ def prep_ngen_data(conf):
             }
 
         if data_source == "forcings":
-            data_avg = np.average(data_array, axis=0)
-            avg_df = pd.DataFrame(data_avg.T, columns=ngen_variables)
-            avg_df.insert(0, "catchment id", forcing_cat_ids)
-
-            data_med = np.median(data_array, axis=0)
-            med_df = pd.DataFrame(data_med.T, columns=ngen_variables)
-            med_df.insert(0, "catchment id", forcing_cat_ids)
 
             vpu_precip_df = calculate_vpu_precip_stats(
                 data_array,
                 list(weights_df.index),
                 jcatchment_dict,
             )
-        elif data_source == "channel_routing":
-            data_avg = np.average(data_array[:, :, 1], axis=0)
-            avg_df = pd.DataFrame(data_avg.T, columns=["q_lateral"])
-            avg_df.insert(0, "nexus id", list(nwm_ngen_map.keys()))
-
-            data_med = np.median(data_array[:, :, 1], axis=0)
-            med_df = pd.DataFrame(data_med.T, columns=["q_lateral"])
-            med_df.insert(0, "nexus id", list(nwm_ngen_map.keys()))
-        else:
-            # troute restarts won't need stats calculated for them since there's no time axis
-            avg_df = pd.DataFrame()
-            med_df = pd.DataFrame()
 
         del data_array
 
@@ -1571,7 +1552,6 @@ def prep_ngen_data(conf):
         else:
             local_metapath = metaf_path
 
-       
         if data_source == "forcings":
             # Issue 9: write compact VPU-level precipitation statistics.
             write_df(
@@ -1595,28 +1575,6 @@ def prep_ngen_data(conf):
             bucket=meta_bucket,
             client=s3,
         )
-        if not avg_df.empty:
-            write_df(
-                avg_df,
-                "catchments_avg.csv",
-                storage_type,
-                data_source_arg="na",
-                local_path=local_metapath,
-                key_prefix=meta_key,
-                bucket=meta_bucket,
-                client=s3,
-            )
-        if not med_df.empty:
-            write_df(
-                med_df,
-                "catchments_median.csv",
-                storage_type,
-                data_source_arg="na",
-                local_path=local_metapath,
-                key_prefix=meta_key,
-                bucket=meta_bucket,
-                client=s3,
-            )
 
         meta_time = time.perf_counter() - t000
         log_time("METADATA_END", log_file)
