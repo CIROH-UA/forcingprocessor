@@ -5,6 +5,7 @@ from forcingprocessor.processor import prep_ngen_data
 from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
 import pytest
 import re
+from unittest.mock import patch
 import pandas as pd
 
 HF_VERSION = "v2.2"
@@ -298,6 +299,50 @@ def test_retro_3_0(download_weight_file, clean_forcings_metadata_dirs):
     assert assert_file.exists()
     os.remove(assert_file)
 
+def test_weights_file_override(
+    download_weight_file,
+    download_gpkg,
+    clean_forcings_metadata_dirs,
+):
+    """
+    Test that weights_file takes precedence over gpkg_file
+    when obtaining forcing weights.
+    """
+    geopackage_name = "vpu-09_subset.gpkg"
+    gpkg_file = str(data_dir / geopackage_name)
+    weights_file = str(data_dir / weights_name)
+
+    conf["forcing"]["nwm_file"] = retro_filenamelist
+    conf["forcing"]["gpkg_file"] = gpkg_file
+    conf["forcing"]["weights_file"] = weights_file
+
+    nwmurl_conf_retro["urlbaseinput"] = 4
+    generate_nwmfiles(nwmurl_conf_retro)
+
+    try:
+        with patch(
+            "forcingprocessor.processor.multiprocess_hf2ds",
+            wraps=__import__(
+                "forcingprocessor.processor",
+                fromlist=["multiprocess_hf2ds"],
+            ).multiprocess_hf2ds,
+        ) as mock_hf2ds:
+            prep_ngen_data(conf)
+
+            assert mock_hf2ds.call_count == 1
+
+            weight_inputs = mock_hf2ds.call_args.args[0]
+
+            assert weight_inputs == [weights_file]
+            assert gpkg_file not in weight_inputs
+
+        assert_file = (data_dir / "forcings/VPU_09_forcings.nc").resolve()
+        assert assert_file.exists()
+
+        os.remove(assert_file)
+
+    finally:
+        conf["forcing"].pop("weights_file", None)
 
 def test_plotting(download_gpkg, clean_forcings_metadata_dirs):
     geopackage_name = "vpu-09_subset.gpkg"
