@@ -1,128 +1,122 @@
+import argparse
+import concurrent.futures as cf
 import json
-import pandas as pd
-import argparse, os, json, sys, re
+import os
+import shutil
+import sys
+import time
+from dataclasses import dataclass
+from datetime import datetime
+from io import BytesIO
+from pathlib import Path
+
+import gcsfs
+import geopandas as gpd
+import numpy as np
 import requests
 import s3fs
-import gcsfs
-from pathlib import Path
-import numpy as np
 import xarray as xr
-import time
-import boto3
-from io import BytesIO, TextIOWrapper
-import concurrent.futures as cf
-from datetime import datetime
-import gzip
-import tarfile, tempfile
-import s3fs
-import geopandas as gpd
-from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
-from forcingprocessor.plot_forcings import plot_ngen_forcings
-from forcingprocessor.utils import (
-    make_forcing_netcdf,
-    get_window,
-    log_time,
-    convert_url2key,
-    report_usage,
-    nwm_variables,
-    ngen_variables,
-    normalize_vpu_id,
-)
+
 from forcingprocessor.channel_routing_tools import (
     channelrouting_nwm2ngen,
     write_netcdf_chrt,
 )
+from forcingprocessor.config import (
+    build_output_layout,
+    parse_nwm_filenames,
+    read_config,
+    write_run_manifest,
+)
+from forcingprocessor.metadata import collect_metadata
+from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_restart
+from forcingprocessor.utils import (
+    B2MB,
+    convert_url2key,
+    distribute_work,
+    get_window,
+    load_balance,
+    log_time,
+    ngen_variables,
+    nwm_variables,
+    phase,
+    read_dataset,
+    read_json,
+    report_usage,
+)
+from forcingprocessor.weights_hf2ds import multiprocess_hf2ds
+from forcingprocessor.writers import (
+    multiprocess_write_df,
+    multiprocess_write_netcdf,
+    multiprocess_write_tar,
+)
 
 
-B2MB = 1048576
+@dataclass
+class Geometry:
+    """Catchment geometry and identifier mappings the run extracts against."""
+
+    ncatchments: int = 0
+    weights_df: object = None
+    jcatchment_dict: dict = None
+    window: list = None
+    nwm_ngen_map: dict = None
+    cat_map: dict = None
+    crosswalk_ds: object = None
+    routelink_ds: object = None
 
 
-def distribute_work(items, nprocs):
+@dataclass
+class Extracted:
+    """Data pulled out of the NWM files, ordered in time."""
+
+    data_array: object
+    t_ax: list = None
+    nwm_data: object = None
+    nwm_file_sizes_MB: list = None
+
+
+@dataclass
+class WriteResult:
+    """Identifiers and file sizes reported back by the write processes."""
+
+    forcing_cat_ids: list = None
+    filenames: list = None
+    cat_file_sizes_MB: list = None
+    cat_file_sizes_zipped_MB: list = None
+    tar_buffs: list = None
+    netcdf_file_sizes_MB: list = None
+
+
+def pool_filesystem(fs_type):
     """
-    Distribute items evenly between processes, round robin
+    Filesystem handed to the extraction pool. Google is deferred to the workers
+    because a GCSFileSystem does not survive the trip to a subprocess.
     """
-    items_per_proc = [0 for x in range(nprocs)]
-    for j in range(len(items)):
-        k = j % nprocs
-        items_per_proc[k] = items_per_proc[k] + 1
-    return items_per_proc
+    if fs_type == "s3":
+        return s3fs.S3FileSystem(anon=True, client_kwargs={"region_name": "us-east-1"})
+    if fs_type == "google":
+        return "google"
+    return None
 
 
-def load_balance(items_per_proc, launch_delay, single_ex, exec_count):
-    """
-    Python takes a couple seconds to launch a process so if this script is launched with 10's
-    of processes, it may not be optimal to distribute the work evenly.
-    This function minimizes projected processing time
-
-    items_per_proc : list of length number of processes with each element representing the number of items the process has been assigned
-    launch_delay   : time in seconds it takes python to launch the function
-    single_ex      : time in seconds it takes to process 1 item
-    exec_count     : number of items processed per execution
-
-    """
-    nprocs = len(items_per_proc)
-    nitems = np.sum(items_per_proc)
-    completion_time = [
-        single_ex * x / exec_count + launch_delay * j
-        for j, x in enumerate(items_per_proc)
-    ]
-    while True:
-        if len(np.nonzero(items_per_proc)[0]) > 0:
-            break
-        max_time = max(completion_time)
-        max_loc = completion_time.index(max_time)
-        min_time = min(completion_time)
-        min_loc = completion_time.index(min_time)
-        if max_time - min_time > single_ex:
-            items_per_proc[max_loc] -= 1
-            items_per_proc[min_loc] += 1
-        else:
-            break
-        completion_time = [
-            single_ex * x / exec_count + launch_delay * j
-            for j, x in enumerate(items_per_proc)
-        ]
-
-    completion_time = [
-        single_ex * x / exec_count + j for j, x in enumerate(items_per_proc)
-    ]
-    global ntasked
-    ntasked = len(np.nonzero(items_per_proc)[0])
-    if nprocs > ntasked:
-        if ii_verbose:
-            print(
-                f"Not enough work for {nprocs} requested processes, downsizing to {ntasked}"
-            )
-        nprocs = ntasked
-        completion_time = completion_time[:ntasked]
-        items_per_proc = items_per_proc[:ntasked]
-    if ii_verbose:
-        print(f"item distribution {items_per_proc}")
-    return items_per_proc
-
-
-def multiprocess_data_extract(files: list, nprocs: int, weights_df: pd.DataFrame, fs):
+def multiprocess_data_extract(cfg, files: list, weights_df, window: list, fs):
     """
     Sets up the multiprocessing pool for forcing_grid2catchment and returns the data and time axis ordered in time.
 
     Parameters:
+        cfg (RunConfig): Run configuration.
         files (list): List of files to be processed.
-        nprocs (int): Number of processes to be used.
         weights_df (dict): DataFrame containing catchment weights.
+        window (list): Grid window the weights fall inside.
         fs (s3 filesystem): s3fs
 
     Returns:
         data_array (numpy.ndarray): Concatenated array containing the extracted data.
         t_ax_local (list): List of time axes corresponding to the extracted data.
     """
-    launch_time = 0.05
-    cycle_time = 35
-    files_per_cycle = 1
-    files_per_proc = distribute_work(files, nprocs)
-    files_per_proc = load_balance(
-        files_per_proc, launch_time, cycle_time, files_per_cycle
-    )
+    files_per_proc = distribute_work(files, cfg.nprocs)
+    files_per_proc = load_balance(files_per_proc, cfg.ii_verbose)
     nprocs = len(files_per_proc)
 
     start = 0
@@ -143,13 +137,13 @@ def multiprocess_data_extract(files: list, nprocs: int, weights_df: pd.DataFrame
             files_list,
             [fs for x in range(nprocs)],
             [ngen_variables for x in range(nprocs)],
-            [ngen_vars_plot for x in range(nprocs)],
+            [cfg.ngen_vars_plot for x in range(nprocs)],
             [weights_df for x in range(nprocs)],
             [window for x in range(nprocs)],
-            [fs_type for x in range(nprocs)],
-            [ii_verbose for x in range(nprocs)],
-            [ii_plot for x in range(nprocs)],
-            [nts_plot for x in range(nprocs)],
+            [cfg.fs_type for x in range(nprocs)],
+            [cfg.ii_verbose for x in range(nprocs)],
+            [cfg.ii_plot for x in range(nprocs)],
+            [cfg.nts_plot for x in range(nprocs)],
         ):
             data_ax.append(results[0])
             t_ax_local.append(results[1])
@@ -166,13 +160,13 @@ def multiprocess_data_extract(files: list, nprocs: int, weights_df: pd.DataFrame
     return data_array, t_ax_local, nwm_data, nwm_file_sizes_out
 
 
-def multiprocess_chrt_extract(files: list, num_procs: int, mapping: dict, fs):
+def multiprocess_chrt_extract(cfg, files: list, mapping: dict, fs):
     """
     Sets up the multiprocessing pool for forcing_grid2catchment and returns the data and time axis ordered in time.
 
     Parameters:
+        cfg (RunConfig): Run configuration.
         files (list): List of files to be processed.
-        nprocs (int): Number of processes to be used.
         mapping (dict): Dictionary that maps NWM IDs to NGEN IDs.
         fs (filesystem): Filesystem for cloud storage reads.
 
@@ -181,13 +175,8 @@ def multiprocess_chrt_extract(files: list, num_procs: int, mapping: dict, fs):
         t_ax_local (list): List of time axes corresponding to the extracted data.
         nwm_file_sizes_out (list): List of file sizes of each input CHRTOUT file.
     """
-    launch_time = 0.05
-    cycle_time = 35
-    files_per_cycle = 1
-    files_per_proc = distribute_work(files, num_procs)
-    files_per_proc = load_balance(
-        files_per_proc, launch_time, cycle_time, files_per_cycle
-    )
+    files_per_proc = distribute_work(files, cfg.nprocs)
+    files_per_proc = load_balance(files_per_proc, cfg.ii_verbose)
     num_procs = len(files_per_proc)
 
     start = 0
@@ -206,9 +195,9 @@ def multiprocess_chrt_extract(files: list, num_procs: int, mapping: dict, fs):
             channelrouting_nwm2ngen,
             files_list,
             [mapping for x in range(num_procs)],
-            [fs_type for x in range(num_procs)],
+            [cfg.fs_type for x in range(num_procs)],
             [fs for x in range(num_procs)],
-            [ii_verbose for x in range(num_procs)],
+            [cfg.ii_verbose for x in range(num_procs)],
         ):
             data_ax.append(results[0])
             t_ax_local.append(results[1])
@@ -400,552 +389,263 @@ def forcing_grid2catchment(
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
 
-def multiprocess_write_df(data, t_ax, catchments, nprocs, out_path, data_source_type):
+def load_geometry(cfg, log_file, timings):
     """
-    Sets up the process pool for write_data_df.
-
-    Parameters:
-        data (numpy.ndarray): 3D array containing the data to be written.
-        t_ax (numpy.ndarray): Array representing the time axis of the data.
-        catchments (iterable): List of catchment identifiers.
-        nprocs (int): Number of processes to be used for writing data.
-        out_path (str): Path where the output files will be saved.
-        data_source_type (str): channel_routing or forcings
-
-    Returns:
-        flat_ids (list): Flattened list of catchment identifiers.
-        flat_dfs (list): Flattened list of pandas DataFrames.
-        flat_filenames (list): Flattened list of filenames.
-        flat_file_sizes (list): Flattened list of file sizes in MB.
-        flat_file_sizes_zipped (list): Flattened list of file sizes after compression in MB.
+    Read the catchment weights, nexus map, or restart mappings this run extracts against.
     """
-
-    launch_time = 0.05
-    cycle_time = 1
-    catchments_per_cycle = 200
-    catchments_per_proc = distribute_work(catchments, nprocs)
-    catchments_per_proc = load_balance(
-        catchments_per_proc, launch_time, cycle_time, catchments_per_cycle
-    )
-
-    ntasked = len(np.nonzero(catchments_per_proc)[0])
-    if nprocs > ntasked:
-        if ii_verbose:
-            print(
-                f"Not enough work for {nprocs} requested processes, downsizing to {ntasked}"
+    if cfg.data_source == "forcings":
+        with phase("READWEIGHTS", log_file, timings):
+            if cfg.ii_verbose:
+                print(f"Obtaining weights\n", flush=True)
+            weights_df, jcatchment_dict = multiprocess_hf2ds(
+                cfg.gpkg_files, cfg.nwm_forcing_files[0], cfg.nprocs
             )
-
-    ncatchments = len(catchments)
-    out_path_list = []
-    print_list = []
-    worker_time_list = []
-    worker_data_list = []
-    worker_catchment_list = []
-    worker_catchments = {}
-
-    i = 0
-    count = 0
-    start = 0
-    end = 0
-    ii_print = False
-    for j, jcatch in enumerate(catchments):
-        worker_catchments[jcatch] = jcatch
-        count += 1
-        if count == catchments_per_proc[i] or j == ncatchments - 1:
-            if len(worker_catchment_list) == ntasked - 1:
-                ii_print = True
-
-            end = min(start + catchments_per_proc[i], ncatchments)
-            if data_source_type == "forcings":
-                worker_data = data[:, :, start:end]
-            else:
-                worker_data = data[:, start:end, :]
-            worker_data_list.append(worker_data)
-            start = end
-
-            worker_catchment_list.append(worker_catchments)
-            out_path_list.append(out_path)
-            print_list.append(ii_print)
-            worker_time_list.append(t_ax)
-
-            worker_catchments = {}
-            count = 0
-
-            i += 1
-
-    ids = []
-    dfs = []
-    filenames = []
-    file_sizes_MB = []
-    file_sizes_zipped_MB = []
-    tar_buffs = []
-    with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
-        for results in pool.map(
-            write_data_df,
-            worker_data_list,
-            worker_time_list,
-            worker_catchment_list,
-            out_path_list,
-            print_list,
-            [ii_verbose for x in range(nprocs)],
-            [storage_type for x in range(nprocs)],
-            [output_file_type for x in range(nprocs)],
-            [ntasked for x in range(nprocs)],
-            [data_source_type for x in range(nprocs)],
-        ):
-            ids.append(results[0])
-            filenames.append(results[1])
-            file_sizes_MB.append(results[2])
-            file_sizes_zipped_MB.append(results[3])
-            tar_buffs.append(results[4])
-    print(f"\n\nGathering data from write processes...")
-
-    flat_ids = []
-    flat_filenames = []
-    flat_file_sizes = []
-    flat_file_sizes_zipped = []
-    flat_tar = []
-
-    while ids:
-        flat_ids.extend(ids.pop(0))
-        flat_filenames.extend(filenames.pop(0))
-        flat_file_sizes.extend(file_sizes_MB.pop(0))
-        flat_file_sizes_zipped.extend(file_sizes_zipped_MB.pop(0))
-        flat_tar.extend(tar_buffs.pop(0))
-
-    return flat_ids, flat_filenames, flat_file_sizes, flat_file_sizes_zipped, flat_tar
-
-
-def write_data_df(
-    data,
-    t_ax,
-    catchments,
-    out_path,
-    ii_print,
-    ii_verbose,
-    storage_type,
-    output_file_type,
-    ntasked,
-    data_source_arg,
-):
-    """
-    Write catchment forcing data to csv or parquet if requested. Also responsible for
-    creating/formatting data in memory for tar writing and metadata collection.
-
-    Args:
-        data: Input data to be written (numpy array)
-        t_ax: Time axis data (numpy array)
-        catchments: List of catchment identifiers
-        out_path: Output path for writing files
-        ii_print: Flag for printing progress information
-
-    Returns:
-        forcing_cat_ids: List of catchment identifiers
-        filenames: List of filenames
-        file_size_MB: List containing the size of each file in MB
-        file_zipped_size_MB: List containing the size of each zipped file in MB
-        tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
-    """
-    s3_client = boto3.session.Session().client("s3")
-    nfiles = len(catchments)
-    id = os.getpid()
-    forcing_cat_ids = []
-    tar_buffs = []
-    filenames = []
-    filename = ""
-    write_int = 400
-    t_df = 0
-    bucket = None
-    key_prefix = None
-    if storage_type == "s3":
-        bucket, key_prefix = convert_url2key(out_path, storage_type)
-
-    t00 = time.perf_counter()
-    for j, jcatch in enumerate(catchments):
-        t0 = time.perf_counter()
-        if data_source_arg == "forcings":
-            df_data = data[:, :, j]
-            df = pd.DataFrame(df_data, columns=ngen_variables)
-            df.insert(0, "time", t_ax)
-        else:
-            df_data = data[:, j, :]
-            try:
-                df = pd.DataFrame(df_data, columns=["feature_id", "q_lateral"])
-            except:
-                print("data source", data_source_arg)
-                raise
-            df = df[["q_lateral"]]
-            df["time"] = t_ax
-            df = df[["time", "q_lateral"]]  # reorder cols to maintain parity
-        t_df += time.perf_counter() - t0
-
-        if data_source_arg == "forcings":
-            cat_id = jcatch.split("-")[1]
-            forcing_cat_ids.append(cat_id)
-        else:
-            nex_id = jcatch
-
-        if "parquet" in output_file_type or "csv" in output_file_type:
-            if "netcdf" in output_file_type:
-                output_file_type.pop(output_file_type.index("netcdf"))
-            if data_source_arg == "forcings":
-                filename = f"cat-{cat_id}.{output_file_type[0]}"
-            else:
-                filename = f"{nex_id}.{output_file_type[0]}"
-            if j == 0:
-                if ii_verbose:
-                    print(
-                        f"{id} writing {nfiles} dataframes to {output_file_type}",
-                        end=None,
-                        flush=True,
-                    )
-            kwargs = (
-                {"s3": s3_client, "bucket": bucket, "key_prefix": key_prefix}
-                if storage_type == "s3"
-                else {"local_path": out_path}
-            )
-            write_df(df, filename, storage_type, data_source_arg, **kwargs)
-        else:
-            if data_source_arg == "forcings":
-                filename = f"./cat-{cat_id}.csv"
-            else:
-                filename = f"./{nex_id}.csv"
-
-        filenames.append(str(Path(filename).name))
-
-        if "tar" in output_file_type:
-            buf = BytesIO()
-            df.to_csv(buf, index=False)
-            buf.seek(0)
-            tar_buffs.append(buf)
-
-        if j == 0:
-            if not os.path.exists(filename):
-                if data_source_arg == "forcings":
-                    filename = f"./cat-{cat_id}.csv"
-                else:
-                    filename = f"./{nex_id}.csv"
-                df.to_csv(filename, index=False)
-                file_size_MB = os.path.getsize(filename) / B2MB
-                os.remove(filename)
-            else:
-                file_size_MB = os.path.getsize(filename) / B2MB
-
-            pattern = r"\.\w+$"
-            filename_zip = re.sub(pattern, ".zip", filename)
-            with gzip.GzipFile(filename_zip, mode="w") as zipped_file:
-                df.to_csv(TextIOWrapper(zipped_file, "utf8"), index=False)
-            file_zipped_size_MB = os.path.getsize(filename_zip) / B2MB
-            os.remove(filename_zip)
-
-        if ii_print and ii_verbose:
-            if (j + 1) % write_int == 0 or j == nfiles - 1:
-                t_accum = time.perf_counter() - t00
-                rate = (j + 1) * ntasked / t_accum
-                bytes2bits = 8
-                bandwidth_Mbps = rate * file_size_MB * ntasked * bytes2bits
-                estimate_total_time = nfiles * ntasked / rate
-                report_usage()
-                msg = f"\n{(j + 1) * ntasked} dataframes converted out of {nfiles * ntasked}\n"
-                msg += f"rate             {rate:.2f} files/s\n"
-                msg += f"df conversion    {t_df:.2f}s\n"
-                msg += f"estimated total write time {estimate_total_time:.2f}s\n"
-                msg += f"progress                   {(j + 1) / nfiles * 100:.2f}%\n"
-                msg += f"Bandwidth (all processs)   {bandwidth_Mbps:.2f} Mbps"
-                print(msg, flush=True)
-
-    return forcing_cat_ids, filenames, [file_size_MB], [file_zipped_size_MB], tar_buffs
-
-
-def write_tar(tar_buffs, jcatchunk, catchments, filenames, storage_type, forcing_path):
-    """
-    Write DataFrames to a tar archive and upload to S3 or save locally as a compressed tar file.
-
-    Args:
-        tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
-        jcatchunk: Identifier for the chunk of catchments.
-        catchments: List of catchments.
-        filenames: List of filenames corresponding to the DataFrames.
-        storage_type: string s3 or local
-        forcing_path: string s3 uri or local path
-
-    Returns:
-        None
-    """
-    print(f"Writing {jcatchunk} tar")
-    if storage_type == "s3":
-        tar_name = f"{jcatchunk}_forcings.tar.gz"
-        buffer = BytesIO()
-        with tarfile.open(fileobj=buffer, mode="w:gz") as jtar:
-            for j, jcat in enumerate(catchments):
-                jbuff = tar_buffs[j]
-                jfilename = filenames[j]
-                info = tarfile.TarInfo(name=jfilename)
-                info.size = len(jbuff.getbuffer())
-                jtar.addfile(info, jbuff)
-
-        print(f"Uploading {jcatchunk} tar to s3")
-        buffer.seek(0)
-        bucket, key = convert_url2key(forcing_path, storage_type)
-        s3 = boto3.client("s3")
-        s3.put_object(Bucket=bucket, Key=key + "/" + tar_name, Body=buffer.getvalue())
-    else:
-        tar_name = Path(forcing_path, f"{jcatchunk}_forcings.tar.gz")
-        with tarfile.open(tar_name, "w:gz") as jtar:
-            for j, jcat in enumerate(catchments):
-                jbuff = tar_buffs[j]
-                jfilename = filenames[j]
-                info = tarfile.TarInfo(name=jfilename)
-                info.size = len(jbuff.getbuffer())
-                jtar.addfile(info, jbuff)
-
-
-def multiprocess_write_tar(catchments, filenames, tar_buffs):
-    """
-    Write DataFrames to tar archives using multiprocessing.
-
-    Args:
-        catchments: Dictionary containing catchment chunks.
-        filenames: List of filenames corresponding to the DataFrames.
-        tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
-
-    Returns:
-        None
-    """
-    i = 0
-    k = 0
-    tar_buffs_list = []
-    jcatchunk_list = []
-    catchments_list = []
-    filenames_list = []
-    for j, jchunk in enumerate(catchments):
-        ncatchments = len(catchments[jchunk])
-        k += ncatchments
-        tar_buffs_list.append(tar_buffs[i:k])
-        jcatchunk_list.append(jchunk)
-        catchments_list.append(catchments[jchunk])
-        filenames_list.append(filenames[i:k])
-        i = k
-
-    njobs = len(catchments)
-
-    with cf.ProcessPoolExecutor(max_workers=min(len(catchments), nprocs)) as pool:
-        for results in pool.map(
-            write_tar,
-            tar_buffs_list,
-            jcatchunk_list,
-            catchments_list,
-            filenames_list,
-            [storage_type for x in range(njobs)],
-            [forcing_path for x in range(njobs)],
-        ):
-            pass
-
-
-def write_netcdf(
-    data: np.ndarray,
-    t_ax: list,
-    catchments: list,
-    prefix: str,
-    filename: str,
-    storage_type: str,
-):
-    """
-    Write 3D array data to a NetCDF file.
-
-    Parameters:
-        data (numpy.ndarray): 3D array with dimensions (time, forcing_variable, catchment-id).
-        t_ax (list): list representing time axis.
-        catchments (list): list containing catchment IDs.
-        filename (str): string for the filename
-    Returns:
-        None
-    """
-    if storage_type == "s3":
-        s3_client = boto3.session.Session().client("s3")
-        nc_filename = prefix + "/" + filename
-    else:
-        nc_filename = Path(prefix, filename)
-
-    data = np.transpose(data, (2, 0, 1))
-    t_utc = np.array(
-        [datetime.timestamp(datetime.strptime(jt, "%Y-%m-%d %H:%M:%S")) for jt in t_ax],
-        dtype=np.float64,
-    )
-    catchments = np.array(catchments, dtype="str")
-    if storage_type == "s3":
-        bucket, key = convert_url2key(nc_filename, "s3")
-        with tempfile.NamedTemporaryFile(suffix=".nc") as tmpfile:
-            make_forcing_netcdf(tmpfile.name, catchments, t_utc, data)
-            netcdf_cat_file_size = os.path.getsize(tmpfile.name) / B2MB
-            tmpfile.flush()
-            tmpfile.seek(0)
-            print(f"Uploading netcdf forcings to S3: bucket={bucket}, key={key}")
-            s3_client.upload_file(tmpfile.name, bucket, key)
-    else:
-        make_forcing_netcdf(nc_filename, catchments, t_utc, data)
-        print(f"netcdf has been written to {nc_filename}")
-        netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
-    return netcdf_cat_file_size
-
-
-def multiprocess_write_netcdf(
-    data: np.ndarray, jcatchment_dict: dict, t_ax: np.ndarray
-):
-    """
-    Write DataFrames to tar archives using multiprocessing.
-
-    Parameters:
-        data (numpy.ndarray): 3D array with dimensions (catchment-id, time, forcing variable).
-        jcatchment_dict (dict): Dictionary containing catchment chunks.
-        t_ax (numpy.ndarray): Array representing time axis.
-
-    Returns:
-        None
-    """
-    i = 0
-    k = 0
-    data_list = []
-    vpu_list = []
-    catchments_list = []
-    filenames = []
-    for j, jvpu in enumerate(jcatchment_dict):
-        ncatchments = len(jcatchment_dict[jvpu])
-        k += ncatchments
-        data_list.append(data[:, :, i:k])
-        vpu_list.append(jvpu)
-        catchments_list.append(jcatchment_dict[jvpu])
-        if FCST_CYCLE is None:
-            filenames.append(f"{jvpu}_forcings.nc")
-        else:
-            filenames.append(
-                f"ngen.{FCST_CYCLE}z.{URLBASE}.forcing.{LEAD_START}_{LEAD_END}.{jvpu}.nc"
-            )
-        i = k
-
-    njobs = len(jcatchment_dict)
-    netcdf_cat_file_sizes = []
-    with cf.ProcessPoolExecutor(max_workers=min(njobs, nprocs)) as pool:
-        for results in pool.map(
-            write_netcdf,
-            data_list,
-            [t_ax for x in range(njobs)],
-            catchments_list,
-            [forcing_path for x in range(njobs)],
-            filenames,
-            [storage_type for x in range(njobs)],
-        ):
-            netcdf_cat_file_sizes.append(results)
-
-    return netcdf_cat_file_sizes
-
-
-def calculate_vpu_precip_stats(data_array, catchment_ids, jcatchment_dict):
-    """
-    Calculate compact precipitation statistics for each VPU.
-
-    Parameters
-    ----------
-    data_array : np.ndarray
-        Forcing data with dimensions (time, variable, catchment).
-    catchment_ids : list
-        Catchment IDs corresponding to the catchment axis of data_array.
-    jcatchment_dict : dict
-        Mapping of VPU IDs to catchment IDs.
-
-    Returns
-    -------
-    pd.DataFrame
-        One row per VPU containing precipitation summary statistics.
-    """
-    precip_idx = ngen_variables.index("precip_rate")
-    catchment_index = {
-        str(catchment_id): i for i, catchment_id in enumerate(catchment_ids)
-    }
-
-    rows = []
-
-    for vpu_id, vpu_catchments in jcatchment_dict.items():
-        indices = [
-            catchment_index[str(catchment_id)]
-            for catchment_id in vpu_catchments
-            if str(catchment_id) in catchment_index
-        ]
-
-        if not indices:
-            continue
-
-        precip = data_array[:, precip_idx, indices]
-
-        rows.append(
-            {
-                "vpu_id": vpu_id,
-                "precip_min": float(np.min(precip)),
-                "precip_max": float(np.max(precip)),
-                "precip_mean": float(np.mean(precip)),
-                "precip_sum": float(np.sum(precip)),
-                "precip_nonzero_fraction": float(
-                    np.count_nonzero(precip) / precip.size
-                ),
-            }
+        with phase("CALC_WINDOW", log_file, timings):
+            x_min, x_max, y_min, y_max = get_window(weights_df)
+        return Geometry(
+            ncatchments=len(weights_df),
+            weights_df=weights_df,
+            jcatchment_dict=jcatchment_dict,
+            window=[x_max, x_min, y_max, y_min],
         )
 
-    return pd.DataFrame(rows)
+    if cfg.data_source == "channel_routing":
+        with phase("READMAP", log_file, timings):
+            if cfg.ii_verbose:
+                print("Reading NWM to NGEN map\n", flush=True)
+            full_nwm_ngen_map = read_json(cfg.map_file)
+            catchments = gpd.read_file(cfg.gpkg_files[0], layer="nexus")["id"].to_list()
+            nwm_ngen_map = {
+                jcatch: full_nwm_ngen_map[jcatch]
+                for jcatch in catchments
+                if not any(x in jcatch for x in ["tnx", "cnx", "inx"])
+            }
+        return Geometry(ncatchments=len(nwm_ngen_map), nwm_ngen_map=nwm_ngen_map)
 
-def write_df(
-    df: pd.DataFrame,
-    filename: str,
-    storage_type: str,
-    data_source_arg: str,
-    client: boto3.client = None,
-    bucket: str = None,
-    key_prefix: str = None,
-    local_path: str = None,
-):
-    """
-    Write a DataFrame to S3 or local storage as a CSV or Parquet file.
-    The file type is inferred from the filename extension.
+    return Geometry(
+        ncatchments=1,
+        cat_map=read_json(cfg.restart_map_file),
+        crosswalk_ds=read_dataset(cfg.crosswalk_file),
+        routelink_ds=read_dataset(cfg.routelink_file),
+    )
 
-    Args:
-        df (pd.DataFrame): DataFrame to write.
-        filename (str): Name of the file (e.g., 'metadata.csv' or 'metadata.parquet').
-        storage_type (str): 's3' or 'local'.
-        data_source_arg (str): 'channel_routing' or 'forcings'.
-        client (boto3.client, optional): S3 client if using S3.
-        bucket (str, optional): S3 bucket name.
-        key_prefix (str, optional): S3 key prefix (folder path).
-        local_path (str, optional): Local directory path.
-    """
-    ext = Path(filename).suffix.lower()
-    if ext == ".csv":
-        if storage_type == "s3":
-            buf = BytesIO()
-            if data_source_arg == "channel_routing":
-                df.to_csv(buf, header=False)  # t-route input format
-            else:
-                df.to_csv(buf, index=False)
 
-            key_name = f"{key_prefix}/{filename}"
-            client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
-            buf.close()
-        else:
-            out_path = Path(local_path, filename)
-            if data_source_arg == "channel_routing":
-                df.to_csv(out_path, header=False)
-            else:
-                df.to_csv(out_path, index=False)
-    elif ext == ".parquet":
-        if storage_type == "s3":
-            buf = BytesIO()
-            df.to_parquet(buf)
-            key_name = f"{key_prefix}/{filename}"
-            client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
-            buf.close()
-        else:
-            out_path = Path(local_path, filename)
-            df.to_parquet(out_path)
+def extract_restart(cfg, geom):
+    nwm_file = cfg.nwm_forcing_files[0]
+    nwm_file_sizes_MB = []
+    if cfg.fs_type == "google":
+        fs = gcsfs.GCSFileSystem()
+    elif cfg.fs_type == "s3":
+        fs = s3fs.S3FileSystem(anon=True)
     else:
-        raise ValueError("Only CSV and Parquet output is supported by write_df")
+        fs = None
+
+    if fs:
+        if nwm_file.find("https://") >= 0:
+            _, bucket_key = convert_url2key(nwm_file, cfg.fs_type)
+        else:
+            bucket_key = nwm_file
+        file_obj = fs.open(bucket_key, mode="rb")
+        nwm_file_sizes_MB.append(file_obj.details["size"])
+    elif "https://" in nwm_file:
+        response = requests.get(nwm_file, timeout=10)
+
+        if response.status_code == 200:
+            file_obj = BytesIO(response.content)
+        else:
+            raise RuntimeError(f"{nwm_file} does not exist")
+        nwm_file_sizes_MB.append(len(response.content) / B2MB)
+    else:
+        file_obj = nwm_file
+        nwm_file_sizes_MB.append(os.path.getsize(nwm_file) / B2MB)
+
+    nwm_ds = xr.open_dataset(file_obj).load()
+    data_array = create_restart(
+        geom.cat_map, geom.crosswalk_ds, nwm_ds, geom.routelink_ds
+    )
+    return Extracted(data_array=data_array, nwm_file_sizes_MB=nwm_file_sizes_MB)
+
+
+def extract(cfg, geom, nwm_meta, log_file, timings):
+    """
+    Pull the requested data out of the NWM files, ordered so time moves forward.
+    """
+    with phase("PROCESSING", log_file, timings):
+        if cfg.ii_verbose:
+            print(f"Entering data extraction...\n", flush=True)
+
+        if cfg.data_source == "troute_restarts":
+            return extract_restart(cfg, geom)
+
+        fs = pool_filesystem(cfg.fs_type)
+        if cfg.data_source == "forcings":
+            data_array, t_ax, nwm_data, sizes = multiprocess_data_extract(
+                cfg, cfg.nwm_forcing_files, geom.weights_df, geom.window, fs
+            )
+        else:
+            nwm_data = None
+            data_array, t_ax, sizes = multiprocess_chrt_extract(
+                cfg, cfg.nwm_forcing_files, geom.nwm_ngen_map, fs
+            )
+
+        if datetime.strptime(t_ax[0], "%Y-%m-%d %H:%M:%S") > datetime.strptime(
+            t_ax[-1], "%Y-%m-%d %H:%M:%S"
+        ):
+            # Hack to ensure data is always written out with time moving forward.
+            t_ax = list(reversed(t_ax))
+            data_array = np.flip(data_array, axis=0)
+            nwm_meta.lead_start, nwm_meta.lead_end = (
+                nwm_meta.lead_end,
+                nwm_meta.lead_start,
+            )
+
+    if cfg.ii_verbose:
+        t_extract = timings["PROCESSING"]
+        complexity = (len(cfg.nwm_forcing_files) * geom.ncatchments) / 10000
+        print(
+            f"Data extract processs: {cfg.nprocs:.2f}\nExtract time: {t_extract:.2f}\nComplexity: {complexity:.2f}\nScore: {complexity / t_extract:.2f}\n",
+            end=None,
+            flush=True,
+        )
+
+    return Extracted(
+        data_array=data_array,
+        t_ax=t_ax,
+        nwm_data=nwm_data,
+        nwm_file_sizes_MB=sizes,
+    )
+
+
+def write_netcdf_outputs(cfg, layout, geom, nwm_meta, extracted):
+    if cfg.data_source == "forcings":
+        return multiprocess_write_netcdf(
+            cfg,
+            layout.forcing_path,
+            nwm_meta,
+            extracted.data_array,
+            geom.jcatchment_dict,
+            extracted.t_ax,
+        )
+    if cfg.data_source == "channel_routing":
+        if nwm_meta.fcst_cycle is None:
+            filename = "qlaterals.nc"
+        else:
+            filename = f"ngen.{nwm_meta.fcst_cycle}z.{nwm_meta.urlbase}.channel_routing.{nwm_meta.lead_start}_{nwm_meta.lead_end}.nc"
+        return write_netcdf_chrt(
+            cfg.storage_type,
+            layout.forcing_path,
+            extracted.data_array,
+            extracted.t_ax,
+            filename,
+        )
+    filename = f"channel_restart_{nwm_meta.restart_date}_{nwm_meta.restart_hour}0000.nc"
+    return write_netcdf_restart(
+        cfg.storage_type, layout.forcing_path, extracted.data_array, filename
+    )
+
+
+def write_outputs(cfg, layout, geom, nwm_meta, extracted, log_file, timings):
+    """
+    Write the extracted data out in every requested file type.
+    """
+    written = WriteResult()
+    with phase("FILEWRITING", log_file, timings):
+        if "netcdf" in cfg.output_file_type:
+            written.netcdf_file_sizes_MB = write_netcdf_outputs(
+                cfg, layout, geom, nwm_meta, extracted
+            )
+        if cfg.ii_verbose:
+            print(
+                f"Writing catchment forcings to {layout.output_path}!",
+                end=None,
+                flush=True,
+            )
+        if (
+            cfg.ii_plot
+            or cfg.ii_collect_stats
+            or any(x in cfg.output_file_type for x in ["csv", "parquet", "tar"])
+        ):
+            if cfg.data_source == "forcings":
+                catchments = list(geom.weights_df.index)
+            elif cfg.data_source == "channel_routing":
+                catchments = list(geom.nwm_ngen_map.keys())
+            else:
+                catchments = None
+
+            if catchments is None:
+                print("Dataframes don't get written for t-route restarts")
+            else:
+                (
+                    written.forcing_cat_ids,
+                    written.filenames,
+                    written.cat_file_sizes_MB,
+                    written.cat_file_sizes_zipped_MB,
+                    written.tar_buffs,
+                ) = multiprocess_write_df(
+                    cfg,
+                    extracted.data_array,
+                    extracted.t_ax,
+                    catchments,
+                    layout.forcing_path,
+                )
+
+    if cfg.ii_verbose:
+        write_time = timings["FILEWRITING"]
+        print(
+            f"\n\nWrite processs: {cfg.nprocs}\nWrite time: {write_time:.2f}\nWrite rate {geom.ncatchments / write_time:.2f} files/second\n",
+            end=None,
+            flush=True,
+        )
+    return written
+
+
+def plot_outputs(cfg, layout, extracted, forcing_cat_ids):
+    if cfg.gpkg_files[0].endswith(".parquet"):
+        print(f"Plotting currently not implemented for parquet, need geopackage")
+        return
+    if len(cfg.gpkg_files) > 1:
+        raise Warning(f"Plotting only the first geopackage {cfg.gpkg_files[0]}")
+
+    cat_ids = ["cat-" + x for x in forcing_cat_ids]
+    jplot_vars = np.array(
+        [
+            x
+            for x in range(len(ngen_variables))
+            if ngen_variables[x] in cfg.ngen_vars_plot
+        ]
+    )
+    if cfg.storage_type == "s3":
+        gif_out = "./GIFs"
+    else:
+        gif_out = Path(layout.meta_path, "GIFs")
+    plot_ngen_forcings(
+        extracted.nwm_data,
+        extracted.data_array[:, jplot_vars, :],
+        cfg.gpkg_files[0],
+        extracted.t_ax,
+        cat_ids,
+        cfg.ngen_vars_plot,
+        gif_out,
+    )
+    if cfg.storage_type == "s3":
+        os.system(f"aws s3 sync ./GIFs {layout.meta_path}/GIFs")
+
+
+def print_summary(cfg, layout, timings, runtime):
+    print(f"\n\n--------SUMMARY-------")
+    msg = f"\nData has been written to {layout.output_path}"
+    if cfg.data_source == "forcings":
+        msg += (
+            f"\nCalc weights  : {timings['READWEIGHTS'] + timings['CALC_WINDOW']:.2f}s"
+        )
+    msg += f"\nProcess data  : {timings['PROCESSING']:.2f}s"
+    msg += f"\nWrite data    : {timings['FILEWRITING']:.2f}s"
+    if cfg.ii_collect_stats:
+        msg += f"\nCollect stats : {timings['COLLECT_STATS']:.2f}s"
+    if "tar" in cfg.output_file_type:
+        msg += f"\nWrite tar     : {timings['TAR']:.2f}s"
+    msg += f"\nRuntime       : {runtime:.2f}s\n"
+    print(msg)
 
 
 def prep_ngen_data(conf):
@@ -958,706 +658,68 @@ def prep_ngen_data(conf):
 
     Docs: https://github.com/CIROH-UA/forcingprocessor/blob/main/README.md
     """
-
     t_start = time.perf_counter()
-
-    datentime = datetime.utcnow().strftime("%m%d%y_%H%M%S")
-
     log_file = "./profile_fp.txt"
+    timings = {}
+
     log_time("FORCINGPROCESSOR_START", log_file)
-    log_time("CONFIGURATION_START", log_file)
+    with phase("CONFIGURATION", log_file, timings):
+        cfg = read_config(conf)
+        layout = build_output_layout(cfg)
+        nwm_meta = parse_nwm_filenames(cfg)
 
-    gpkg_file = conf["forcing"].get("gpkg_file", None)
-    nwm_file = conf["forcing"].get("nwm_file", "")
-
-    if type(gpkg_file) is not list:
-        gpkg_files = [gpkg_file]
-    else:
-        gpkg_files = gpkg_file
-
-    # Issue 9: optional explicit VPU ids for multi-gpkg / multi-weight runs.
-    # If forcing.vpu_id is not supplied, infer ids from filenames.
-    vpu_ids = conf["forcing"].get("vpu_id", None)
-
-    if vpu_ids is None:
-        vpu_ids = [normalize_vpu_id(x) for x in gpkg_files]
-    elif type(vpu_ids) is not list:
-        vpu_ids = [vpu_ids]
-
-    vpu_ids = [normalize_vpu_id(x) for x in vpu_ids]
-
-    if len(vpu_ids) != len(gpkg_files):
-        raise ValueError(
-            "Length of forcing.vpu_id must match length of forcing.gpkg_file"
-        )
-
-    map_file_path = conf["forcing"].get("map_file", None)
-    restart_map_file_path = conf["forcing"].get("restart_map_file", None)
-    crosswalk_file_path = conf["forcing"].get("crosswalk_file", None)
-    routelink_file_path = conf["forcing"].get("routelink_file", None)
-    if map_file_path:  # NWM to NGEN channel routing processing requires json map
-        data_source = "channel_routing"
-        if "s3://" in map_file_path:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(map_file_path, "r") as map_file:
-                full_nwm_ngen_map = json.load(map_file)
-        else:
-            with open(map_file_path, "r", encoding="utf-8") as map_file:
-                full_nwm_ngen_map = json.load(map_file)
-    elif restart_map_file_path:
-        data_source = "troute_restarts"
-
-        if "s3://" in restart_map_file_path:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(restart_map_file_path, "r") as map_file:
-                cat_map = json.load(map_file)
-        else:
-            with open(restart_map_file_path, "r", encoding="utf-8") as map_file:
-                cat_map = json.load(map_file)
-
-        if "s3://" in crosswalk_file_path:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(crosswalk_file_path, "rb") as crosswalk_file:
-                crosswalk_ds = xr.open_dataset(crosswalk_file).load()
-        else:
-            crosswalk_ds = xr.open_dataset(crosswalk_file_path).load()
-
-        if "s3://" in routelink_file_path:
-            s3 = s3fs.S3FileSystem(anon=True)
-            with s3.open(routelink_file_path, "rb") as routelink_file:
-                routelink_ds = xr.open_dataset(routelink_file).load()
-        else:
-            routelink_ds = xr.open_dataset(routelink_file_path).load()
-
-    else:
-        data_source = "forcings"
-
-    global output_path, output_file_type
-    output_path = conf["storage"].get("output_path", "")
-    output_file_type = conf["storage"].get("output_file_type", "csv")
-
-    global ii_verbose, nprocs
-    ii_verbose = conf["run"].get("verbose", False)
-    ii_collect_stats = conf["run"].get("collect_stats", True)
-    nprocs = conf["run"].get("nprocs", int(os.cpu_count() * 0.5))
-
-    global ii_plot, nts_plot, ngen_vars_plot
-    ii_plot = conf.get("plot", False)
-    if ii_plot:
-        if data_source == "channel_routing" or data_source == "troute_restarts":
-            raise RuntimeError(
-                "Plotting not supported for channel routing or restart processing."
-            )
-
-        nts_plot = conf["plot"].get("nts_plot", 10)
-        ngen_vars_plot = conf["plot"].get("ngen_vars", ngen_variables)
-    else:
-        nts_plot = 0
-        ngen_vars_plot = []
-
-    if ii_verbose:
+    if cfg.ii_verbose:
         msg = f"\nForcingProcessor has awoken. Let's do this."
         for x in msg:
             print(x, end="")
             sys.stdout.flush()
             time.sleep(0.05)
         print("\n")
-
-    t_extract = 0
-    write_time = 0
-
-    file_types = ["csv", "parquet", "tar", "netcdf"]
-    for jtype in output_file_type:
-        assert jtype in file_types, (
-            f"{jtype} for output_file_type is not accepted! Accepted: {file_types}"
-        )
-        assert not ("parquet" in output_file_type and "csv" in output_file_type), (
-            "Both parquet and csv cannot be simultaneously specified in output_file_type, pick one."
-        )
-    global storage_type
-    if "s3://" in output_path:
-        storage_type = "s3"
-    elif "google" in output_path:
-        storage_type = "google"
-    else:
-        storage_type = "local"
-
-    nwm_forcing_files = []
-    with open(nwm_file, "r") as fp:
-        for jline in fp.readlines():
-            nwm_forcing_files.append(jline.strip())
-    nfiles = len(nwm_forcing_files)
-
-    log_time("CONFIGURATION_END", log_file)
-
-    if data_source == "forcings":
-        log_time("READWEIGHTS_START", log_file)
-        tw = time.perf_counter()
-        if ii_verbose:
-            print(f"Obtaining weights\n", flush=True)
-        global weights_df
-        weights_df, jcatchment_dict = multiprocess_hf2ds(
-            gpkg_files, nwm_forcing_files[0], nprocs
-        )
-        log_time("READWEIGHTS_END", log_file)
-
-        # # conus hack
-        # x = {}
-        # x_list = []
-        # for jdict in jcatchment_dict:
-        #     [x_list.append(x) for x in jcatchment_dict[jdict]]
-        # x['conus'] = x_list
-        # jcatchment_dict = x
-
-        log_time("CALC_WINDOW_START", log_file)
-        ncatchments = len(weights_df)
-        global window
-        x_min, x_max, y_min, y_max = get_window(weights_df)
-        window = [x_max, x_min, y_max, y_min]
-        weight_time = time.perf_counter() - tw
-        log_time("CALC_WINDOW_END", log_file)
-    elif data_source == "channel_routing":
-        log_time("READMAP_START", log_file)
-        tw = time.perf_counter()
-        if ii_verbose:
-            print("Reading NWM to NGEN map\n", flush=True)
-        gpkg = gpd.read_file(gpkg_files[0], layer="nexus")
-        catchments = gpkg["id"].to_list()
-        nwm_ngen_map = {}
-        for jcatch in catchments:
-            if "tnx" not in jcatch and "cnx" not in jcatch and "inx" not in jcatch:
-                nwm_ngen_map[jcatch] = full_nwm_ngen_map[jcatch]
-        ncatchments = len(nwm_ngen_map)
-        log_time("READMAP_END", log_file)
-    else:
-        ncatchments = 1
-
-    log_time("STORE_METADATA_START", log_file)
-    global forcing_path
-    s3 = None
-    if storage_type == "local":
-        if output_path == "":
-            output_path = os.path.join(os.getcwd(), datentime)
-        output_path = Path(output_path)
-        if data_source == "channel_routing":
-            forcing_path = Path(output_path, "outputs", "ngen")
-        elif data_source == "troute_restarts":
-            forcing_path = Path(output_path, "restart")
-        else:
-            forcing_path = Path(output_path, "forcings")
-        meta_path = Path(output_path, "metadata")
-        metaf_path = Path(output_path, "metadata", "forcings_metadata")
-        if not os.path.exists(output_path):
-            os.system(f"mkdir {output_path}")
-        if not os.path.exists(forcing_path):
-            os.system(f"mkdir -p {forcing_path}")
-        if not os.path.exists(meta_path):
-            os.system(f"mkdir {meta_path}")
-        if not os.path.exists(metaf_path):
-            os.system(f"mkdir {metaf_path}")
-        conf_path = Path
-        with open(f"{metaf_path}/conf.json", "w") as f:
-            json.dump(conf, f, indent=4)
-        cp_cmd = f"cp {nwm_file} {metaf_path}"
-        os.system(cp_cmd)
-        if data_source == "forcings":
-            weights_df.to_parquet(os.path.join(metaf_path, "weights.parquet"))
-
-    elif storage_type == "s3":
-        bucket_path = output_path
-        forcing_path = bucket_path
-        meta_path = bucket_path + "/metadata"
-        metaf_path = bucket_path + "/metadata/forcings_metadata"
-        bucket, key = convert_url2key(metaf_path, storage_type)
-        conf_path = f"{key}/conf_fp.json"
-        filenamelist_path = f"{key}/{os.path.basename(nwm_file)}"
-        s3 = boto3.client("s3")
-        s3.put_object(Body=json.dumps(conf, indent=4), Bucket=bucket, Key=conf_path)
-        s3.upload_file(nwm_file, bucket, filenamelist_path)
-        if data_source == "forcings":
-            buf = BytesIO()
-            filename = metaf_path + f"/weights.parquet"
-            weights_df.to_parquet(buf, index=False)
-            buf.seek(0)
-            s3.put_object(
-                Bucket=bucket,
-                Key="/".join(filename.split("/")[3:]),
-                Body=buf.getvalue(),
-            )
-
-    log_time("STORE_METADATA_END", log_file)
-
-    # s3://noaa-nwm-pds/nwm.20241029/forcing_short_range/nwm.t00z.short_range.forcing.f001.conus.nc
-    if data_source == "forcings":
-        pattern = r"nwm\.(\d{8})/forcing_(\w+)/nwm\.(\w+)(\d{2})z\.\w+\.forcing\.(\w+)(\d{2})\.conus\.nc"
-    elif data_source == "channel_routing":
-        pattern = r"nwm\.(\d{8})/(\w+)/nwm\.(\w+)(\d{2})z\.\w+\.channel_rt[^\.]*\.(\w+)(\d{2})\.conus\.nc"
-    else:
-        # s3://noaa-nwm-pds/nwm.20241029/analysis_assim/nwm.t16z.analysis_assim.channel_rt.tm00.conus.nc
-        pattern = r"nwm\.(\d{8})/analysis_assim/nwm\.t(\d{2})z\.analysis_assim\.channel_rt\.tm00\.conus\.nc"
-        pass
-
-    # Extract forecast cycle and lead time from the first and last file names
-    global URLBASE, FCST_CYCLE, LEAD_START, LEAD_END
-    match = re.search(pattern, nwm_forcing_files[0])
-    FCST_CYCLE = None
-    LEAD_START = None
-    LEAD_END = None
-    if data_source != "troute_restarts":
-        if match:
-            URLBASE = match.group(2)
-            FCST_CYCLE = match.group(3) + match.group(4)
-            LEAD_START = match.group(5) + match.group(6)
-        else:
-            print(
-                f"Could not extract forecast cycle and lead start from the first NWM forcing file: {nwm_forcing_files[0]}"
-            )
-        match = re.search(pattern, nwm_forcing_files[-1])
-        if match:
-            LEAD_END = match.group(5) + match.group(6)
-        else:
-            print(
-                f"Could not extract lead end from the last NWM forcing file: {nwm_forcing_files[-1]}"
-            )
-    else:
-        if match:
-            restart_date = match.group(1)
-            restart_hour = match.group(2)
-        else:
-            print("Could not extract restart date and time")
-
-    # Determine the file system type based on the first NWM forcing file
-    global fs_type
-    if "s3://" in nwm_forcing_files[0] in nwm_forcing_files[0]:
-        fs = s3fs.S3FileSystem(anon=True, client_kwargs={"region_name": "us-east-1"})
-        fs_type = "s3"
-    elif (
-        "google" in nwm_forcing_files[0]
-        or "gs://" in nwm_forcing_files[0]
-        or "gcs://" in nwm_forcing_files[0]
-    ):
-        fs = "google"
-        fs_type = "google"
-    else:
-        fs = None
-        fs_type = None
-
-    if ii_verbose:
         print(f"NWM file names:")
-        for jfile in nwm_forcing_files:
+        for jfile in cfg.nwm_forcing_files:
             print(f"{jfile}")
 
-    log_time("PROCESSING_START", log_file)
-    t0 = time.perf_counter()
-    if ii_verbose:
-        print(f"Entering data extraction...\n", flush=True)
-    # data_array, t_ax, nwm_data, nwm_file_sizes_MB = forcing_grid2catchment(nwm_forcing_files, fs)
-    # data_array=data_array[0][None,:]
-    # t_ax = t_ax
-    # nwm_data=nwm_data[0][None,:]
-    if data_source == "forcings" or data_source == "channel_routing":
-        if data_source == "forcings":
-            data_array, t_ax, nwm_data, nwm_file_sizes_MB = multiprocess_data_extract(
-                nwm_forcing_files, nprocs, weights_df, fs
-            )
-        else:
-            data_array, t_ax, nwm_file_sizes_MB = multiprocess_chrt_extract(
-                nwm_forcing_files, nprocs, nwm_ngen_map, fs
-            )
+    geom = load_geometry(cfg, log_file, timings)
 
-        if datetime.strptime(t_ax[0], "%Y-%m-%d %H:%M:%S") > datetime.strptime(
-            t_ax[-1], "%Y-%m-%d %H:%M:%S"
-        ):
-            # Hack to ensure data is always written out with time moving forward.
-            t_ax = list(reversed(t_ax))
-            data_array = np.flip(data_array, axis=0)
-            tmp = LEAD_START
-            LEAD_START = LEAD_END
-            LEAD_END = tmp
+    with phase("STORE_INPUTS", log_file, timings):
+        s3_client = write_run_manifest(cfg, layout, geom.weights_df)
 
-        t_extract = time.perf_counter() - t0
-        complexity = (nfiles * ncatchments) / 10000
-        score = complexity / t_extract
-        if ii_verbose:
-            print(
-                f"Data extract processs: {nprocs:.2f}\nExtract time: {t_extract:.2f}\nComplexity: {complexity:.2f}\nScore: {score:.2f}\n",
-                end=None,
-                flush=True,
-            )
-
-    else:
-        nwm_file = nwm_forcing_files[0]
-        nwm_file_sizes_MB = []
-        if fs_type == "google":
-            fs_arg = gcsfs.GCSFileSystem()
-        elif fs_type == "s3":
-            fs_arg = s3fs.S3FileSystem(anon=True)
-        else:
-            fs_arg = None
-        if fs_arg:
-            if nwm_file.find("https://") >= 0:
-                _, bucket_key = convert_url2key(nwm_file, fs_type)
-            else:
-                bucket_key = nwm_file
-            file_obj = fs_arg.open(bucket_key, mode="rb")
-            nwm_file_sizes_MB.append(file_obj.details["size"])
-        elif "https://" in nwm_file:
-            response = requests.get(nwm_file, timeout=10)
-
-            if response.status_code == 200:
-                file_obj = BytesIO(response.content)
-            else:
-                raise RuntimeError(f"{nwm_file} does not exist")
-            nwm_file_sizes_MB.append(len(response.content) / B2MB)
-        else:
-            file_obj = nwm_file
-            nwm_file_sizes_MB.append(os.path.getsize(nwm_file) / B2MB)
-
-        nwm_ds = xr.open_dataset(file_obj).load()
-        data_array = create_restart(cat_map, crosswalk_ds, nwm_ds, routelink_ds)
-
-    log_time("PROCESSING_END", log_file)
-
-    log_time("FILEWRITING_START", log_file)
-    t0 = time.perf_counter()
-    if "netcdf" in output_file_type:
-        if data_source == "forcings":
-            netcdf_cat_file_sizes_MB = multiprocess_write_netcdf(
-                data_array, jcatchment_dict, t_ax
-            )
-        elif data_source == "channel_routing":
-            if FCST_CYCLE is None:
-                filename = "qlaterals.nc"
-            else:
-                filename = f"ngen.{FCST_CYCLE}z.{URLBASE}.channel_routing.{LEAD_START}_{LEAD_END}.nc"
-            netcdf_cat_file_sizes_MB = write_netcdf_chrt(
-                storage_type, forcing_path, data_array, t_ax, filename
-            )
-        else:
-            filename = (
-                "channel_restart_" + restart_date + "_" + restart_hour + "0000.nc"
-            )
-            netcdf_cat_file_sizes_MB = write_netcdf_restart(
-                storage_type, forcing_path, data_array, filename
-            )
-        # write_netcdf(data_array,"1", t_ax, jcatchment_dict['1'])
-    if ii_verbose:
-        print(f"Writing catchment forcings to {output_path}!", end=None, flush=True)
-    if (
-        ii_plot
-        or ii_collect_stats
-        or any(x in output_file_type for x in ["csv", "parquet", "tar"])
-    ):
-        if data_source == "forcings":
-            (
-                forcing_cat_ids,
-                filenames,
-                individual_cat_file_sizes_MB,
-                individual_cat_file_sizes_MB_zipped,
-                tar_buffs,
-            ) = multiprocess_write_df(
-                data_array,
-                t_ax,
-                list(weights_df.index),
-                nprocs,
-                forcing_path,
-                data_source,
-            )
-        elif data_source == "channel_routing":
-            (
-                forcing_cat_ids,
-                filenames,
-                individual_cat_file_sizes_MB,
-                individual_cat_file_sizes_MB_zipped,
-                tar_buffs,
-            ) = multiprocess_write_df(
-                data_array,
-                t_ax,
-                list(nwm_ngen_map.keys()),
-                nprocs,
-                forcing_path,
-                data_source,
-            )
-        else:
-            print("Dataframes don't get written for t-route restarts")
-
-    write_time += time.perf_counter() - t0
-    write_rate = ncatchments / write_time
-    if ii_verbose:
-        print(
-            f"\n\nWrite processs: {nprocs}\nWrite time: {write_time:.2f}\nWrite rate {write_rate:.2f} files/second\n",
-            end=None,
-            flush=True,
-        )
-    log_time("FILEWRITING_END", log_file)
-
+    extracted = extract(cfg, geom, nwm_meta, log_file, timings)
+    written = write_outputs(cfg, layout, geom, nwm_meta, extracted, log_file, timings)
     runtime = time.perf_counter() - t_start
 
-    if ii_plot:
-        if gpkg_files[0].endswith(".parquet"):
-            print(f"Plotting currently not implemented for parquet, need geopackage")
-        else:
-            if len(gpkg_files) > 1:
-                raise Warning(f"Plotting only the first geopackage {gpkg_files[0]}")
+    if cfg.ii_plot:
+        plot_outputs(cfg, layout, extracted, written.forcing_cat_ids)
 
-            cat_ids = ["cat-" + x for x in forcing_cat_ids]
-            jplot_vars = np.array(
-                [
-                    x
-                    for x in range(len(ngen_variables))
-                    if ngen_variables[x] in ngen_vars_plot
-                ]
-            )
-            if storage_type == "s3":
-                gif_out = "./GIFs"
+    if cfg.ii_collect_stats:
+        with phase("COLLECT_STATS", log_file, timings):
+            collect_metadata(cfg, layout, s3_client, geom, extracted, written, runtime)
+        runtime += timings["COLLECT_STATS"]
+    extracted.data_array = None
+
+    if "tar" in cfg.output_file_type:
+        with phase("TAR", log_file, timings):
+            if cfg.ii_verbose:
+                print(f"\nWriting tarball...", flush=True)
+            if cfg.data_source == "channel_routing":
+                chunks = {1: list(geom.nwm_ngen_map.keys())}
             else:
-                gif_out = Path(meta_path, "GIFs")
-            plot_ngen_forcings(
-                nwm_data,
-                data_array[:, jplot_vars, :],
-                gpkg_files[0],
-                t_ax,
-                cat_ids,
-                ngen_vars_plot,
-                gif_out,
+                chunks = geom.jcatchment_dict
+            multiprocess_write_tar(
+                cfg, layout.forcing_path, chunks, written.filenames, written.tar_buffs
             )
-            if storage_type == "s3":
-                sync_cmd = f"aws s3 sync ./GIFs {meta_path}/GIFs"
-                os.system(sync_cmd)
+        runtime += timings["TAR"]
 
-    # Metadata
-    if ii_collect_stats:
-        log_time("METADATA_START", log_file)
-        t000 = time.perf_counter()
-        if ii_verbose:
-            print(f"Data processing, now calculating metadata...", flush=True)
-
-        nwm_file_size_avg = np.average(nwm_file_sizes_MB)
-        nwm_file_size_med = np.median(nwm_file_sizes_MB)
-        nwm_file_size_std = np.std(nwm_file_sizes_MB)
-
-        individual_catch_file_size_avg = 0
-        individual_catch_file_size_med = 0
-        individual_catch_file_size_std = 0
-        individual_catch_file_zip_size_avg = 0
-        individual_catch_file_zip_size_med = 0
-        individual_catch_file_zip_size_std = 0
-        if "csv" in output_file_type or "parquet" in output_file_type:
-            individual_catch_file_size_avg = np.average(
-                np.fromiter(individual_cat_file_sizes_MB, dtype=float)
-            )
-            individual_catch_file_size_med = np.median(individual_cat_file_sizes_MB)
-            individual_catch_file_size_std = np.std(individual_cat_file_sizes_MB)
-
-            individual_catch_file_zip_size_avg = np.average(
-                individual_cat_file_sizes_MB_zipped
-            )
-            individual_catch_file_zip_size_med = np.median(
-                individual_cat_file_sizes_MB_zipped
-            )
-            individual_catch_file_zip_size_std = np.std(
-                individual_cat_file_sizes_MB_zipped
-            )
-
-        netcdf_catch_file_size_avg = 0
-        netcdf_catch_file_size_med = 0
-        netcdf_catch_file_size_std = 0
-        if "netcdf" in output_file_type:
-            netcdf_catch_file_size_avg = np.average(
-                np.fromiter(netcdf_cat_file_sizes_MB, dtype=float)
-            )
-            netcdf_catch_file_size_med = np.median(netcdf_cat_file_sizes_MB)
-            netcdf_catch_file_size_std = np.std(netcdf_cat_file_sizes_MB)
-
-        if data_source == "forcings":
-            metadata = {
-                "runtime_s": [round(runtime, 2)],
-                "nvars_intput": [len(nwm_variables)],
-                "nwmfiles_input": [len(nwm_forcing_files)],
-                "nwm_file_size_avg_MB": [nwm_file_size_avg],
-                "nwm_file_size_med_MB": [nwm_file_size_med],
-                "nwm_file_size_std_MB": [nwm_file_size_std],
-                "catch_files_output": [nfiles],
-                "nvars_output": [len(ngen_variables)],
-                "individual_catch_file_size_avg_MB": [individual_catch_file_size_avg],
-                "individual_catch_file_size_med_MB": [individual_catch_file_size_med],
-                "individual_catch_file_size_std_MB": [individual_catch_file_size_std],
-                "individual_catch_file_zip_size_avg_MB": [
-                    individual_catch_file_zip_size_avg
-                ],
-                "individual_catch_file_zip_size_med_MB": [
-                    individual_catch_file_zip_size_med
-                ],
-                "individual_catch_file_zip_size_std_MB": [
-                    individual_catch_file_zip_size_std
-                ],
-                "netcdf_catch_file_size_avg_MB": [netcdf_catch_file_size_avg],
-                "netcdf_catch_file_size_med_MB": [netcdf_catch_file_size_med],
-                "netcdf_catch_file_size_std_MB": [netcdf_catch_file_size_std],
-            }
-        elif data_source == "channel_routing":
-            metadata = {
-                "runtime_s": [round(runtime, 2)],
-                "nvars_intput": [1],
-                "nwmfiles_input": [len(nwm_forcing_files)],
-                "nwm_file_size_avg_MB": [nwm_file_size_avg],
-                "nwm_file_size_med_MB": [nwm_file_size_med],
-                "nwm_file_size_std_MB": [nwm_file_size_std],
-                "catch_files_output": [nfiles],
-                "nvars_output": [1],
-                "individual_catch_file_size_avg_MB": [individual_catch_file_size_avg],
-                "individual_catch_file_size_med_MB": [individual_catch_file_size_med],
-                "individual_catch_file_size_std_MB": [individual_catch_file_size_std],
-                "individual_catch_file_zip_size_avg_MB": [
-                    individual_catch_file_zip_size_avg
-                ],
-                "individual_catch_file_zip_size_med_MB": [
-                    individual_catch_file_zip_size_med
-                ],
-                "individual_catch_file_zip_size_std_MB": [
-                    individual_catch_file_zip_size_std
-                ],
-                "netcdf_catch_file_size_avg_MB": [netcdf_catch_file_size_avg],
-                "netcdf_catch_file_size_med_MB": [netcdf_catch_file_size_med],
-                "netcdf_catch_file_size_std_MB": [netcdf_catch_file_size_std],
-            }
-        else:
-            # metadata for troute restart gen
-            metadata = {
-                "runtime_s": [round(runtime, 2)],
-                "nwmfiles_input": [len(nwm_forcing_files)],
-                "nwm_file_size": [nwm_file_size_avg],
-                "netcdf_catch_file_size_MB": [netcdf_catch_file_size_avg],
-            }
-
-        if data_source == "forcings":
-            data_avg = np.average(data_array, axis=0)
-            avg_df = pd.DataFrame(data_avg.T, columns=ngen_variables)
-            avg_df.insert(0, "catchment id", forcing_cat_ids)
-
-            data_med = np.median(data_array, axis=0)
-            med_df = pd.DataFrame(data_med.T, columns=ngen_variables)
-            med_df.insert(0, "catchment id", forcing_cat_ids)
-
-            vpu_precip_df = calculate_vpu_precip_stats(
-                data_array,
-                list(weights_df.index),
-                jcatchment_dict,
-            )
-        elif data_source == "channel_routing":
-            data_avg = np.average(data_array[:, :, 1], axis=0)
-            avg_df = pd.DataFrame(data_avg.T, columns=["q_lateral"])
-            avg_df.insert(0, "nexus id", list(nwm_ngen_map.keys()))
-
-            data_med = np.median(data_array[:, :, 1], axis=0)
-            med_df = pd.DataFrame(data_med.T, columns=["q_lateral"])
-            med_df.insert(0, "nexus id", list(nwm_ngen_map.keys()))
-        else:
-            # troute restarts won't need stats calculated for them since there's no time axis
-            avg_df = pd.DataFrame()
-            med_df = pd.DataFrame()
-
-        del data_array
-
-        metadata_df = pd.DataFrame.from_dict(metadata)
-        meta_key = None
-        meta_bucket = None
-        local_metapath = None
-        if storage_type == "s3":
-            bucket, key = convert_url2key(output_path, storage_type)
-            meta_path = f"{key}/metadata/forcings_metadata/"
-            meta_key = meta_path
-            meta_bucket = bucket
-        else:
-            local_metapath = metaf_path
-
-       
-        if data_source == "forcings":
-            # Issue 9: write compact VPU-level precipitation statistics.
-            write_df(
-                vpu_precip_df,
-                "metadata_by_vpu.csv",
-                storage_type,
-                data_source_arg="na",
-                local_path=local_metapath,
-                key_prefix=meta_key,
-                bucket=meta_bucket,
-                client=s3,
-            )
-
-        write_df(
-            metadata_df,
-            "metadata.csv",
-            storage_type,
-            data_source_arg="na",
-            local_path=local_metapath,
-            key_prefix=meta_key,
-            bucket=meta_bucket,
-            client=s3,
-        )
-        if not avg_df.empty:
-            write_df(
-                avg_df,
-                "catchments_avg.csv",
-                storage_type,
-                data_source_arg="na",
-                local_path=local_metapath,
-                key_prefix=meta_key,
-                bucket=meta_bucket,
-                client=s3,
-            )
-        if not med_df.empty:
-            write_df(
-                med_df,
-                "catchments_median.csv",
-                storage_type,
-                data_source_arg="na",
-                local_path=local_metapath,
-                key_prefix=meta_key,
-                bucket=meta_bucket,
-                client=s3,
-            )
-
-        meta_time = time.perf_counter() - t000
-        log_time("METADATA_END", log_file)
-
-    if "tar" in output_file_type:
-        log_time("TAR_START", log_file)
-        if ii_verbose:
-            print(f"\nWriting tarball...", flush=True)
-        t0000 = time.perf_counter()
-        if data_source == "channel_routing":
-            jcatchment_dict = {
-                1: list(nwm_ngen_map.keys())
-            }  # not really the most efficient way to
-            # do this tbh
-        multiprocess_write_tar(jcatchment_dict, filenames, tar_buffs)
-        tar_time = time.perf_counter() - t0000
-        log_time("TAR_END", log_file)
-
-    if ii_verbose:
-        print(f"\n\n--------SUMMARY-------")
-        msg = f"\nData has been written to {output_path}"
-        if data_source == "forcings":
-            msg += f"\nCalc weights  : {weight_time:.2f}s"
-        msg += f"\nProcess data  : {t_extract:.2f}s"
-        msg += f"\nWrite data    : {write_time:.2f}s"
-        if ii_collect_stats:
-            runtime += meta_time
-            msg += f"\nCollect stats : {meta_time:.2f}s"
-        if "tar" in output_file_type:
-            runtime += tar_time
-            msg += f"\nWrite tar     : {tar_time:.2f}s"
-        msg += f"\nRuntime       : {runtime:.2f}s\n"
-        print(msg)
+    if cfg.ii_verbose:
+        print_summary(cfg, layout, timings, runtime)
     log_time("FORCINGPROCESSOR_END", log_file)
 
-    if storage_type == "s3":
-        bucket, key = convert_url2key(metaf_path, storage_type)
-        log_path = key + "/profile_fp.txt"
-        s3.upload_file(f"./profile_fp.txt", bucket, log_path)
+    if cfg.storage_type == "s3":
+        bucket, key = convert_url2key(layout.metaf_path, cfg.storage_type)
+        s3_client.upload_file(log_file, bucket, key + "/profile_fp.txt")
+        os.remove(log_file)
     else:
-        os.system(f"mv ./profile_fp.txt {metaf_path}")
+        shutil.move(log_file, Path(layout.metaf_path, "profile_fp.txt"))
 
 
 def main():

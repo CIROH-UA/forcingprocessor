@@ -1,10 +1,16 @@
 from datetime import datetime
+import json
 import numpy as np
 from datetime import timezone
+from contextlib import contextmanager
 import psutil
 import re
+import s3fs
+import time
+import xarray as xr
 from pathlib import Path
 
+B2MB = 1048576
 
 nwm_variables = [
     "U2D",
@@ -93,6 +99,65 @@ def log_time(label, log_file):
     timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d%H%M%S")
     with open(log_file, "a") as f:
         f.write(f"{label}: {timestamp}\n")
+
+
+@contextmanager
+def phase(label, log_file, timings=None):
+    """
+    Bracket a step of the run with START/END entries in the profile log and
+    record its duration in the timings dict.
+    """
+    log_time(f"{label}_START", log_file)
+    t0 = time.perf_counter()
+    yield
+    if timings is not None:
+        timings[label] = time.perf_counter() - t0
+    log_time(f"{label}_END", log_file)
+
+
+def read_json(path):
+    if "s3://" in str(path):
+        with s3fs.S3FileSystem(anon=True).open(path, "r") as f:
+            return json.load(f)
+    with open(path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def read_dataset(path):
+    if "s3://" in str(path):
+        with s3fs.S3FileSystem(anon=True).open(path, "rb") as f:
+            return xr.open_dataset(f).load()
+    return xr.open_dataset(path).load()
+
+
+def distribute_work(items, nprocs):
+    """
+    Distribute items evenly between processes, round robin
+    """
+    items_per_proc = [0 for x in range(nprocs)]
+    for j in range(len(items)):
+        k = j % nprocs
+        items_per_proc[k] = items_per_proc[k] + 1
+    return items_per_proc
+
+
+def load_balance(items_per_proc, ii_verbose=False):
+    """
+    Drop the processes that were assigned no work.
+
+    items_per_proc : list of length number of processes with each element representing the number of items the process has been assigned
+    """
+    nprocs = len(items_per_proc)
+    ntasked = len(np.nonzero(items_per_proc)[0])
+    if nprocs > ntasked:
+        if ii_verbose:
+            print(
+                f"Not enough work for {nprocs} requested processes, downsizing to {ntasked}"
+            )
+        items_per_proc = items_per_proc[:ntasked]
+    if ii_verbose:
+        print(f"item distribution {items_per_proc}")
+    return items_per_proc
 
 
 def report_usage():

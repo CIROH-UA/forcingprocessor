@@ -1,5 +1,6 @@
 """Tests for channel routing-based t-route input generation."""
 
+import copy
 import os
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
@@ -63,6 +64,19 @@ nwmurl_conf_retro = {
     "selected_var_types": [1],
     "write_to_file": True,
 }
+
+
+@pytest.fixture(autouse=True)
+def restore_conf():
+    """
+    Tests mutate the shared conf, so hand every test the module level defaults.
+    Without this a test that swaps in the retrospective filenamelist leaks it
+    into the tests that follow.
+    """
+    snapshot = copy.deepcopy(conf)
+    yield
+    conf.clear()
+    conf.update(snapshot)
 
 
 @pytest.fixture
