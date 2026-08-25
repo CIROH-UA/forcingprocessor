@@ -147,7 +147,7 @@ def collect_metadata(cfg, layout, s3_client, geom, extracted, written, runtime):
     Calculate and write run statistics next to the run outputs.
     """
     if cfg.ii_verbose:
-        print(f"Data processing, now calculating metadata...", flush=True)
+        print("Data processing, now calculating metadata...", flush=True)
 
     if cfg.data_source == "forcings":
         ids = written.forcing_cat_ids

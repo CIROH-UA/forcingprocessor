@@ -239,7 +239,7 @@ def write_netcdf_restart(storage_type: str, prefix: Path, ds: xr.Dataset, name: 
         netcdf_cat_file_size (list): file size of output netcdf
     """
     if storage_type == "s3":
-        s3_client = boto3.session.Session().client("s3")
+        s3_client = boto3.session.Session().client("s3") # type: ignore
         nc_filename = str(prefix) + "/" + name
         bucket, key = convert_url2key(nc_filename, "s3")
         with tempfile.NamedTemporaryFile(suffix=".nc") as tmpfile:

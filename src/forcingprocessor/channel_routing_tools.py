@@ -13,9 +13,8 @@ import xarray as xr
 import numpy as np
 import pandas as pd
 import boto3
-import traceback
 import tempfile
-from forcingprocessor.utils import convert_url2key, report_usage, make_forcing_netcdf
+from forcingprocessor.utils import convert_url2key, report_usage
 
 B2MB = 1048576
 
@@ -66,7 +65,7 @@ def channelrouting_nwm2ngen(
             else:
                 bucket_key = nwm_file
             file_obj = fs_arg.open(bucket_key, mode="rb")
-            nwm_file_sizes_MB.append(file_obj.details["size"])
+            nwm_file_sizes_MB.append(file_obj.details["size"]) # type: ignore
         elif "https://" in nwm_file:
             response = requests.get(nwm_file, timeout=10)
 
@@ -138,12 +137,14 @@ def channelrouting_nwm2ngen(
                 flush=True,
             )
             print(
-                f"xarray open dataset: {txrds / (j + 1):.2f} s\nfill array: {tfill / (j + 1):.2f} s\n",
+                f"xarray open dataset: {txrds / (j + 1):.2f} s" +
+                f"\nfill array: {tfill / (j + 1):.2f} s\n",
                 end=None,
                 flush=True,
             )
             print(
-                f"calculate catchment values: {tdata / (j + 1):.2f} s\ntotal {ttotal / (j + 1):.2f} s\n",
+                f"calculate catchment values: {tdata / (j + 1):.2f} s" +
+                f"\ntotal {ttotal / (j + 1):.2f} s\n",
                 end=None,
                 flush=True,
             )
@@ -176,7 +177,7 @@ def write_netcdf_chrt(
         netcdf_cat_file_size (list): file size of output netcdf
     """
     if storage_type == "s3":
-        s3_client = boto3.session.Session().client("s3")
+        s3_client = boto3.session.Session().client("s3") # type: ignore
         nc_filename = str(prefix) + "/" + name
     else:
         nc_filename = Path(prefix, name)

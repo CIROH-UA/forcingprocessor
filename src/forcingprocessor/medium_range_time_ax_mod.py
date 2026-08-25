@@ -1,18 +1,22 @@
-# Author: Jordan Laser, Lynker
-#
-# This script reads in a NRDS forcing file and shifts the time coordinate for medium range ensemble members
-# https://github.com/CIROH-UA/ngen-datastream/issues/202
-import xarray as xr
-from pathlib import Path
-import numpy as np
-from datetime import datetime, timezone
+"""
+Author: Jordan Laser, Lynker
+
+This script reads in a NRDS forcing file and shifts the time coordinate for medium range ensemble
+members
+https://github.com/CIROH-UA/ngen-datastream/issues/202
+"""
+
 import re
+from pathlib import Path
+import xarray as xr
+import numpy as np
+
 from forcingprocessor.utils import make_forcing_netcdf
 
 
 def cut_forcing_data_for_ensemble(
     ds: xr.Dataset, ens_member: int, time_shift_hours: int = 6
-) -> np.ndarray:
+) -> xr.Dataset:
     """
     Shift the time axis of the dataset based on the ensemble member.
 
@@ -61,36 +65,36 @@ if __name__ == "__main__":
         help="Ensember member (2-7)",
     )
 
-    time_shift_hours = 6
+    TIME_SHIFT_HOURS = 6
 
     args = parser.parse_args()
     assert Path(args.output_dir).is_dir(), "Output directory does not exist"
 
     # Cut dataset based on ensemble member
     ds_in = xr.open_dataset(args.input_file_ens0)
-    ens_member = int(args.ensemble_member)
-    if ens_member > 1 and ens_member < 8:
-        ds_mod = cut_forcing_data_for_ensemble(ds_in, ens_member, time_shift_hours)
+    ensemble_member = int(args.ensemble_member)
+    if ensemble_member > 1 and ensemble_member < 8:
+        ds_mod = cut_forcing_data_for_ensemble(ds_in, ensemble_member, TIME_SHIFT_HOURS)
     else:
         raise ValueError("Ensemble member must be between 2 and 7")
 
     # Choose filename
-    pattern = r"^ngen\.t\d{2}z\.medium_range\.forcing\.f001_f240\.VPU_\d+\.nc$"
+    PATTERN = r"^ngen\.t\d{2}z\.medium_range\.forcing\.f001_f240\.VPU_\d+\.nc$"
     input_file = Path(args.input_file_ens0).name
-    if re.match(pattern, input_file):
-        out_filename = input_file.replace("f001_f240", "f001_f204")
+    if re.match(PATTERN, input_file):
+        OUT_FILENAME = input_file.replace("f001_f240", "f001_f204")
     else:
-        out_filename = "forcings_ens_" + str(ens_member) + ".nc"
-    out_path = Path(args.output_dir) / out_filename
+        OUT_FILENAME = "forcings_ens_" + str(ensemble_member) + ".nc"
+    out_path = Path(args.output_dir) / OUT_FILENAME
 
     # Create data array for make_forcing_netcdf
     nvar = len(ds_in.variables) - 2  # Exclude the time and catchment ids variable
     ncat = ds_in["UGRD_10maboveground"].shape[0]
     data_array = np.ones((ncat, 204, nvar), dtype="float64")
-    vars = list(ds_mod.keys())
-    vars.remove("Time")
-    vars.remove("ids")
-    for j, jvar in enumerate(vars):
+    ds_vars = list(ds_mod.keys())
+    ds_vars.remove("Time")
+    ds_vars.remove("ids")
+    for j, jvar in enumerate(ds_vars):
         data_array[:, :, j] = ds_mod[jvar].values
 
     # create netcdf and write it

@@ -1,8 +1,14 @@
-import os, re, copy, json, argparse
-import geopandas as gpd
-from forcingprocessor.weights_hf2ds import calc_weights_from_gdf
+import os
+import re
+import copy
+import json
+import argparse
 import concurrent.futures as cf
+
 import numpy as np
+import geopandas as gpd
+
+from forcingprocessor.weights_hf2ds import calc_weights_from_gdf
 
 
 def multi_subset_conus2vpus(conus: str, raster_file: str, output_dir: str):
@@ -51,7 +57,7 @@ def multi_subset_conus2vpus(conus: str, raster_file: str, output_dir: str):
         k = nper + i
 
     with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
-        for results in pool.map(
+        for _ in pool.map(
             subset_conus2vpus, conus_list, raster_list, output_dir_list, VPUs_list
         ):
             pass
@@ -62,20 +68,19 @@ def subset_conus2vpus(
 ) -> None:
     # Given a conus hydrofabric, subset into vpu and create weights
 
-    PATTERN_VPU = r"\$VPU"
+    pattern_vpu = r"\$VPU"
 
     layers = gpd.list_layers(conus)
     layer_names = list(layers["name"])
     print(layer_names)
 
     jfile_template = os.path.join(output_dir, "nextgen_VPU_$VPU.gpkg")
-    for j, jvpu in enumerate(VPUs):
+    for _, jvpu in enumerate(VPUs):
         txt_file = []
         txt_file2 = []
         ncats = 0
         nattrs = 0
         tmpl_cpy = copy.deepcopy(jfile_template)
-        jfile = re.sub(PATTERN_VPU, jvpu, tmpl_cpy)
 
         for jlayer in layer_names:
             if jlayer == "divides" or jlayer == "divide-attributes":
@@ -105,7 +110,8 @@ def subset_conus2vpus(
                     nattrs = len(attrs_df)
                     if nattrs != ncats:
                         # HACK
-                        # There are some divide_id values that do not have corresponding divide-attributes.
+                        # There are some divide_id values that do not have corresponding
+                        # divide-attributes.
                         # For now these are removed, but this should be revisted
 
                         cats_in_attrs = attrs_df["divide_id"].to_list()
@@ -152,9 +158,9 @@ def subset_conus2vpus(
                             output_dir, "nextgen_VPU_$VPU_weights.json"
                         )
                         tmpl_cpy = copy.deepcopy(jfile_weights_template)
-                        jfile_weights = re.sub(PATTERN_VPU, jvpu, tmpl_cpy)
+                        jfile_weights = re.sub(pattern_vpu, jvpu, tmpl_cpy)
 
-                        with open(jfile_weights, "w") as fp:
+                        with open(jfile_weights, "w", encoding="utf-8") as fp:
                             json.dump(weights_json, fp)
 
                     else:
@@ -169,12 +175,14 @@ def subset_conus2vpus(
             with open(
                 os.path.join(output_dir, f"missing_catchment_attrs_{jvpu}.txt"),
                 mode="w",
+                encoding="utf-8"
             ) as fp:
                 fp.writelines(txt_file)
         if len(txt_file2) > 0:
             with open(
                 os.path.join(output_dir, f"missing_catchment_divides_{jvpu}.txt"),
                 mode="w",
+                encoding="utf-8"
             ) as fp:
                 fp.writelines(txt_file2)
 
@@ -188,7 +196,7 @@ if __name__ == "__main__":
     parser.add_argument("--output_dir", help="Path to write to", default="./")
     args = parser.parse_args()
 
-    VPUs = [
+    CONUS_VPUS = [
         "01",
         "02",
         "03N",
@@ -213,4 +221,4 @@ if __name__ == "__main__":
     ]
 
     # multi_subset_conus2vpus(args.conus_file, args.raster_file, args.output_dir)
-    subset_conus2vpus(args.conus_file, args.raster_file, args.output_dir, VPUs)
+    subset_conus2vpus(args.conus_file, args.raster_file, args.output_dir, CONUS_VPUS)

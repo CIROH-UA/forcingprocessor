@@ -1,14 +1,16 @@
-from datetime import datetime
+from datetime import datetime, timezone
 import json
-import numpy as np
-from datetime import timezone
 from contextlib import contextmanager
-import psutil
 import re
-import s3fs
 import time
-import xarray as xr
 from pathlib import Path
+
+import psutil
+import s3fs
+import numpy as np
+import xarray as xr
+import netCDF4 as nc
+
 
 B2MB = 1048576
 
@@ -65,7 +67,8 @@ def get_window(weights_df):
     """
     Providing window on weights for which number of catchments is over 50,000
 
-    weights_df : datastream weights df where the indicies are catchment ids and the columns are cell-id and coverage
+    weights_df : datastream weights df where the indicies are catchment ids and the columns are
+        cell-id and coverage
     """
     nx = 4608
     ny = 3840
@@ -97,7 +100,7 @@ def get_window(weights_df):
 
 def log_time(label, log_file):
     timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d%H%M%S")
-    with open(log_file, "a") as f:
+    with open(log_file, "a", encoding="utf-8") as f:
         f.write(f"{label}: {timestamp}\n")
 
 
@@ -145,7 +148,8 @@ def load_balance(items_per_proc, ii_verbose=False):
     """
     Drop the processes that were assigned no work.
 
-    items_per_proc : list of length number of processes with each element representing the number of items the process has been assigned
+    items_per_proc : list of length number of processes with each element representing the number of
+        items the process has been assigned
     """
     nprocs = len(items_per_proc)
     ntasked = len(np.nonzero(items_per_proc)[0])
@@ -165,7 +169,8 @@ def report_usage():
     percent_ram = psutil.virtual_memory()[2]
     percent_cpu = psutil.cpu_percent()
     print(
-        f"\nCurrent RAM usage (GB): {usage_ram:.2f}, {percent_ram:.2f}%\nCurrent CPU usage : {percent_cpu:.2f}%"
+        f"\nCurrent RAM usage (GB): {usage_ram:.2f}, {percent_ram:.2f}%" +
+        f"\nCurrent CPU usage : {percent_cpu:.2f}%"
     )
     return usage_ram, percent_ram, percent_cpu
 
@@ -183,12 +188,14 @@ def convert_url2key(nwm_file, fs_type):
         bucket = _nc_file_parts[3]
     elif fs_type == "s3":
         bucket = _nc_file_parts[2]
+    else:
+        bucket = None
 
     return bucket, bucket_key
 
 
 def make_forcing_netcdf(
-    out_path: str, catchments: np.ndarray, t_ax: np.ndarray, input_array: np.ndarray
+    out_path: str | Path, catchments: np.ndarray, t_ax: np.ndarray, input_array: np.ndarray
 ) -> None:
     """
     Create a netcdf file with the forcing data.
@@ -199,9 +206,8 @@ def make_forcing_netcdf(
     t_ax (np.ndarray): Time axis array with shape (nt,).
     input_array (np.ndarray): Forcing data array with shape (ncat, nt, forcing variables).
     """
-    import netCDF4 as nc
 
-    with nc.Dataset(out_path, "w", format="NETCDF4") as ds:
+    with nc.Dataset(out_path, "w", format="NETCDF4") as ds: # pylint: disable=no-member
         ds.createDimension("catchment-id", len(catchments))
         ds.createDimension("time", len(t_ax))
 

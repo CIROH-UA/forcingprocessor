@@ -29,10 +29,10 @@ def write_df(
     filename: str,
     storage_type: str,
     data_source_arg: str,
-    client: boto3.client = None,
-    bucket: str = None,
-    key_prefix: str = None,
-    local_path: str = None,
+    client: boto3.client = None, # type: ignore
+    bucket: str = "",
+    key_prefix: str = "",
+    local_path: str = "",
 ):
     """
     Write a DataFrame to S3 or local storage as a CSV or Parquet file.
@@ -58,7 +58,8 @@ def write_df(
                 df.to_csv(buf, index=False)
 
             key_name = f"{key_prefix}/{filename}"
-            client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
+            if client is not None:
+                client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
             buf.close()
         else:
             out_path = Path(local_path, filename)
@@ -71,7 +72,8 @@ def write_df(
             buf = BytesIO()
             df.to_parquet(buf)
             key_name = f"{key_prefix}/{filename}"
-            client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
+            if client is not None:
+                client.put_object(Bucket=bucket, Key=key_name, Body=buf.getvalue())
             buf.close()
         else:
             out_path = Path(local_path, filename)
@@ -110,9 +112,9 @@ def write_data_df(
         file_zipped_size_MB: List containing the size of each zipped file in MB
         tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
     """
-    s3_client = boto3.session.Session().client("s3")
+    s3_client = boto3.session.Session().client("s3") # type: ignore
     nfiles = len(catchments)
-    id = os.getpid()
+    pid = os.getpid()
     forcing_cat_ids = []
     tar_buffs = []
     filenames = []
@@ -159,7 +161,7 @@ def write_data_df(
             if j == 0:
                 if ii_verbose:
                     print(
-                        f"{id} writing {nfiles} dataframes to {output_file_type}",
+                        f"{pid} writing {nfiles} dataframes to {output_file_type}",
                         end=None,
                         flush=True,
                     )
@@ -182,6 +184,9 @@ def write_data_df(
             df.to_csv(buf, index=False)
             buf.seek(0)
             tar_buffs.append(buf)
+
+        file_size_MB = 0
+        file_zipped_size_MB = 0
 
         if j == 0:
             if not os.path.exists(filename):
@@ -306,7 +311,7 @@ def multiprocess_write_df(cfg, data, t_ax, catchments, out_path):
             file_sizes_MB.append(results[2])
             file_sizes_zipped_MB.append(results[3])
             tar_buffs.append(results[4])
-    print(f"\n\nGathering data from write processes...")
+    print("\n\nGathering data from write processes...")
 
     flat_ids = []
     flat_filenames = []
@@ -344,7 +349,7 @@ def write_tar(tar_buffs, jcatchunk, catchments, filenames, storage_type, forcing
         tar_name = f"{jcatchunk}_forcings.tar.gz"
         buffer = BytesIO()
         with tarfile.open(fileobj=buffer, mode="w:gz") as jtar:
-            for j, jcat in enumerate(catchments):
+            for j, _ in enumerate(catchments):
                 jbuff = tar_buffs[j]
                 jfilename = filenames[j]
                 info = tarfile.TarInfo(name=jfilename)
@@ -359,7 +364,7 @@ def write_tar(tar_buffs, jcatchunk, catchments, filenames, storage_type, forcing
     else:
         tar_name = Path(forcing_path, f"{jcatchunk}_forcings.tar.gz")
         with tarfile.open(tar_name, "w:gz") as jtar:
-            for j, jcat in enumerate(catchments):
+            for j, _ in enumerate(catchments):
                 jbuff = tar_buffs[j]
                 jfilename = filenames[j]
                 info = tarfile.TarInfo(name=jfilename)
@@ -387,7 +392,7 @@ def multiprocess_write_tar(cfg, forcing_path, catchments, filenames, tar_buffs):
     jcatchunk_list = []
     catchments_list = []
     filenames_list = []
-    for j, jchunk in enumerate(catchments):
+    for _, jchunk in enumerate(catchments):
         ncatchments = len(catchments[jchunk])
         k += ncatchments
         tar_buffs_list.append(tar_buffs[i:k])
@@ -399,7 +404,7 @@ def multiprocess_write_tar(cfg, forcing_path, catchments, filenames, tar_buffs):
     njobs = len(catchments)
 
     with cf.ProcessPoolExecutor(max_workers=min(njobs, cfg.nprocs)) as pool:
-        for results in pool.map(
+        for _ in pool.map(
             write_tar,
             tar_buffs_list,
             jcatchunk_list,
@@ -431,7 +436,7 @@ def write_netcdf(
         None
     """
     if storage_type == "s3":
-        s3_client = boto3.session.Session().client("s3")
+        s3_client = boto3.session.Session().client("s3") # type: ignore
         nc_filename = prefix + "/" + filename
     else:
         nc_filename = Path(prefix, filename)
@@ -441,18 +446,18 @@ def write_netcdf(
         [datetime.timestamp(datetime.strptime(jt, "%Y-%m-%d %H:%M:%S")) for jt in t_ax],
         dtype=np.float64,
     )
-    catchments = np.array(catchments, dtype="str")
+    catchments_arr = np.array(catchments, dtype="str")
     if storage_type == "s3":
         bucket, key = convert_url2key(nc_filename, "s3")
         with tempfile.NamedTemporaryFile(suffix=".nc") as tmpfile:
-            make_forcing_netcdf(tmpfile.name, catchments, t_utc, data)
+            make_forcing_netcdf(tmpfile.name, catchments_arr, t_utc, data)
             netcdf_cat_file_size = os.path.getsize(tmpfile.name) / B2MB
             tmpfile.flush()
             tmpfile.seek(0)
             print(f"Uploading netcdf forcings to S3: bucket={bucket}, key={key}")
             s3_client.upload_file(tmpfile.name, bucket, key)
     else:
-        make_forcing_netcdf(nc_filename, catchments, t_utc, data)
+        make_forcing_netcdf(nc_filename, catchments_arr, t_utc, data)
         print(f"netcdf has been written to {nc_filename}")
         netcdf_cat_file_size = os.path.getsize(nc_filename) / B2MB
     return netcdf_cat_file_size
@@ -478,7 +483,7 @@ def multiprocess_write_netcdf(cfg, forcing_path, nwm_meta, data, jcatchment_dict
     data_list = []
     catchments_list = []
     filenames = []
-    for j, jvpu in enumerate(jcatchment_dict):
+    for _, jvpu in enumerate(jcatchment_dict):
         ncatchments = len(jcatchment_dict[jvpu])
         k += ncatchments
         data_list.append(data[:, :, i:k])
@@ -487,7 +492,8 @@ def multiprocess_write_netcdf(cfg, forcing_path, nwm_meta, data, jcatchment_dict
             filenames.append(f"{jvpu}_forcings.nc")
         else:
             filenames.append(
-                f"ngen.{nwm_meta.fcst_cycle}z.{nwm_meta.urlbase}.forcing.{nwm_meta.lead_start}_{nwm_meta.lead_end}.{jvpu}.nc"
+                f"ngen.{nwm_meta.fcst_cycle}z.{nwm_meta.urlbase}.forcing.{nwm_meta.lead_start}_" +
+                f"{nwm_meta.lead_end}.{jvpu}.nc"
             )
         i = k
 

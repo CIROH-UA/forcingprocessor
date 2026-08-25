@@ -41,7 +41,7 @@ class RunConfig:
     output_path: str
     output_file_type: list
     storage_type: str
-    fs_type: str
+    fs_type: str | None
     nprocs: int
     ii_verbose: bool
     ii_collect_stats: bool
@@ -55,24 +55,25 @@ class OutputLayout:
     output_path: object
     forcing_path: object
     meta_path: object
-    metaf_path: object
+    metaf_path: Path
 
 
 @dataclass
 class NWMFileMetadata:
-    urlbase: str = None
-    fcst_cycle: str = None
-    lead_start: str = None
-    lead_end: str = None
-    restart_date: str = None
-    restart_hour: str = None
+    urlbase: str = ""
+    fcst_cycle: str | None = None
+    lead_start: str = ""
+    lead_end: str = ""
+    restart_date: str = ""
+    restart_hour: str = ""
 
 
 def read_config(conf):
     """
     Parse and validate a forcingprocessor config into a RunConfig.
 
-    Inputs: forcingprocessor config file https://github.com/CIROH-UA/forcingprocessor/blob/main/configs/conf_fp.json
+    Inputs: forcingprocessor config file
+        https://github.com/CIROH-UA/forcingprocessor/blob/main/configs/conf_fp.json
     """
     forcing = conf["forcing"]
     gpkg_file = forcing.get("gpkg_file", None)
@@ -101,7 +102,7 @@ def read_config(conf):
         data_source = "forcings"
 
     nwm_file = forcing.get("nwm_file", "")
-    with open(nwm_file, "r") as fp:
+    with open(nwm_file, "r", encoding="utf-8") as fp:
         nwm_forcing_files = [jline.strip() for jline in fp.readlines()]
 
     output_path = conf["storage"].get("output_path", "")
@@ -141,6 +142,10 @@ def read_config(conf):
         nts_plot = 0
         ngen_vars_plot = []
 
+    cpu_count = os.cpu_count()
+    if cpu_count is None:
+        cpu_count = 1
+
     return RunConfig(
         conf=conf,
         data_source=data_source,
@@ -156,7 +161,7 @@ def read_config(conf):
         output_file_type=output_file_type,
         storage_type=storage_type,
         fs_type=fs_type,
-        nprocs=conf["run"].get("nprocs", int(os.cpu_count() * 0.5)),
+        nprocs=conf["run"].get("nprocs", int(cpu_count * 0.5)),
         ii_verbose=conf["run"].get("verbose", False),
         ii_collect_stats=conf["run"].get("collect_stats", True),
         ii_plot=bool(plot),
@@ -211,7 +216,7 @@ def write_run_manifest(cfg, layout, weights_df=None):
     s3 client used, which is reused for metadata writes, or None for local runs.
     """
     if cfg.storage_type == "local":
-        with open(Path(layout.metaf_path, "conf.json"), "w") as f:
+        with open(Path(layout.metaf_path, "conf.json"), "w", encoding="utf-8") as f:
             json.dump(cfg.conf, f, indent=4)
         shutil.copy(cfg.nwm_file, layout.metaf_path)
         if weights_df is not None:
@@ -258,7 +263,8 @@ def parse_nwm_filenames(cfg):
         meta.lead_start = match.group(5) + match.group(6)
     else:
         print(
-            f"Could not extract forecast cycle and lead start from the first NWM forcing file: {files[0]}"
+            "Could not extract forecast cycle and lead start from the first NWM forcing file: " +
+            f"{files[0]}"
         )
 
     match = re.search(pattern, files[-1])

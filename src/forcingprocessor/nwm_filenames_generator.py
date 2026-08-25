@@ -1,6 +1,7 @@
-import json, os
-import nwmurl
+import json
+import os
 import argparse
+import nwmurl
 
 
 def generate_nwmfiles(conf):
@@ -55,7 +56,7 @@ if __name__ == "__main__":
     if "s3" in args.infile:
         os.system(f"wget {args.infile}")
         filename = args.infile.split("/")[-1]
-        conf = json.load(open(filename))
+        config = json.load(open(filename, encoding="utf-8"))
     else:
-        conf = json.load(open(args.infile))
-    generate_nwmfiles(conf)
+        config = json.load(open(args.infile, encoding="utf-8"))
+    generate_nwmfiles(config)

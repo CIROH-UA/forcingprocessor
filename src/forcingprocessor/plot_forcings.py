@@ -1,16 +1,18 @@
-import xarray as xr
-import argparse, os
+import argparse
+import os
+from typing import Tuple
+from pathlib import Path
+from datetime import datetime
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import imageio.v2 as imageio
 import numpy as np
 import pandas as pd
 import geopandas as gpd
-from pathlib import Path
-from datetime import datetime
+import xarray as xr
+
 from forcingprocessor.weights_hf2ds import hf2ds
 from forcingprocessor.utils import get_window, nwm_variables, ngen_variables
-from forcingprocessor.utils import nwm_variables
 
 plt.style.use("dark_background")
 mpl.use("Agg")
@@ -20,10 +22,10 @@ def plot_ngen_forcings(
     nwm_data: np.ndarray,
     ngen_data: np.ndarray,
     geopackage: str,
-    t_ax: list,
-    catchment_ids: list,
-    ngen_vars_plot: list = ngen_variables,
-    output_dir: Path = "./GIFs",
+    t_ax: list | pd.Series,
+    catchment_ids: list | np.ndarray,
+    ngen_vars_plot: list | None = None,
+    output_dir: Path = Path("./GIFs"),
 ):
     """
     Generates side-by-side gif of nwm and ngen forcing data
@@ -35,12 +37,17 @@ def plot_ngen_forcings(
     ngen_vars_plot : list of ngen variables to plot
 
     """
+
+    if ngen_vars_plot is None:
+        ngen_vars_plot = ngen_variables
     gdf = gpd.read_file(geopackage, layer="divides")
     gdf = gdf.set_index("divide_id")
     gdf = gdf.reindex(catchment_ids)
     jplot_vars = np.array(
         [x for x in range(len(ngen_variables)) if ngen_variables[x] in ngen_vars_plot]
     )
+    cmin = 0
+    cmax = 0
     for var_idx, ngen_variable in enumerate(ngen_vars_plot):
         nwm_variable = nwm_variables[jplot_vars[var_idx]]
         print(f"creating gif for variables {nwm_variable} -> {ngen_variable}")
@@ -53,10 +60,10 @@ def plot_ngen_forcings(
                 cmax = np.max(nwm_data_jvar)
             im = axes[0].imshow(nwm_data_jvar, vmin=cmin, vmax=cmax)
             axes[0].axis("off")
-            axes[0].set_title(f"NWM")
+            axes[0].set_title("NWM")
             gdf[ngen_variable] = ngen_data[j, var_idx, :]
             gdf.plot(column=ngen_variable, ax=axes[1], vmin=cmin, vmax=cmax)
-            axes[1].set_title(f"NGEN")
+            axes[1].set_title("NGEN")
             axes[1].axis("off")
             fig_name = f"{jtime}.png"
             plt.colorbar(
@@ -85,11 +92,13 @@ def plot_ngen_forcings(
 
 
 def nc_to_3darray(
-    forcings_nc: os.PathLike, requested_vars: list = ngen_variables
-) -> np.ndarray:
+    forcings_nc: os.PathLike, requested_vars: list | None = None
+) -> Tuple[np.ndarray, list, np.ndarray]:
     """
     forcings_nc : path to ngen forcings netcdf
     """
+    if requested_vars is None:
+        requested_vars = ngen_variables
     with xr.open_dataset(forcings_nc) as ngen_forcings:
         ngen_data = np.zeros(
             (len(ngen_forcings.time), len(requested_vars), len(ngen_forcings.ids)),
@@ -110,14 +119,17 @@ def nc_to_3darray(
 
 
 def csvs_to_3darray(
-    forcings_dir: os.PathLike, requested_vars: list = ngen_variables
-) -> np.ndarray:
+    forcings_dir: os.PathLike, requested_vars: list | None = None,
+) -> Tuple[np.ndarray, pd.Series, list]:
     """
     forcings_dir : directory containing ngen forcings csvs
     """
+    if requested_vars is None:
+        requested_vars = ngen_variables
     catchment_ids = []
     i = 0
-    for _, _, files in os.walk(forcings_dir):
+    t_ax = pd.Series()
+    for _, _, files in os.walk(forcings_dir): # type: ignore
         for j, jfile in enumerate(files):
             if jfile[-3:] == "csv":
                 catchment_id = jfile.split(".")[0]
@@ -143,18 +155,22 @@ def csvs_to_3darray(
 
 
 def get_nwm_data_array(
-    nwm_folder: list, geopackage: gpd.GeoDataFrame, nwm_vars: list = nwm_variables
+    nwm_folder: list, geopackage: gpd.GeoDataFrame, nwm_vars: list | np.ndarray | None = None
 ) -> np.ndarray:
     """
     Inputs a folder of national water model files and nwm variable names to extract.
 
-    Outputs a windowed array of national water model data for the domain and forcing variables specified.
+    Outputs a windowed array of national water model data for the domain and forcing variables
+    specified.
+
     nwm_data  : 4d array (time x nwm_forcing_variable x west_east x south_north)
     """
+    if nwm_vars is None:
+        nwm_vars = nwm_variables
     weights_json, _ = hf2ds([geopackage], nwm_folder[0], 1)
     x_min, x_max, y_min, y_max = get_window(weights_json)
 
-    for path, _, files in os.walk(nwm_folder):
+    for path, _, files in os.walk(nwm_folder): # type: ignore
         nwm_data = np.zeros(
             (len(files), len(nwm_vars), y_max - y_min + 1, x_max - x_min + 1),
             dtype=np.float32,
@@ -206,31 +222,31 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     requested_ngen_variables = args.ngen_variables.split(", ")
-    nwm_vars = np.array(
+    nwm_vars_to_plot = np.array(
         [
             nwm_variables[x]
             for x in range(len(ngen_variables))
             if ngen_variables[x] in requested_ngen_variables
         ]
     )
-    nwm_data = get_nwm_data_array(args.nwm_folder, args.geopackge, nwm_vars)
+    nwm_data_to_plot = get_nwm_data_array(args.nwm_folder, args.geopackge, nwm_vars_to_plot)
 
     if args.ngen_forcings.endswith(".nc"):
-        ngen_data, t_ax, catchment_ids = nc_to_3darray(
+        ngen_data_to_plot, t_ax_to_plot, catchment_ids_to_plot = nc_to_3darray(
             args.ngen_forcings, requested_ngen_variables
         )
     else:
-        ngen_data, t_ax, catchment_ids = csvs_to_3darray(
+        ngen_data_to_plot, t_ax_to_plot, catchment_ids_to_plot = csvs_to_3darray(
             args.ngen_forcings, requested_ngen_variables
         )
 
     plot_ngen_forcings(
-        nwm_data,
-        ngen_data,
+        nwm_data_to_plot,
+        ngen_data_to_plot,
         args.geopackage,
-        t_ax,
-        catchment_ids,
+        t_ax_to_plot,
+        catchment_ids_to_plot,
         requested_ngen_variables,
         args.output_dir,
     )
-    print(f"Gifs creation complete")
+    print("Gifs creation complete")
