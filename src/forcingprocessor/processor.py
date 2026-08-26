@@ -37,10 +37,10 @@ from forcingprocessor.utils import (
     distribute_work,
     get_window,
     load_balance,
-    log_time,
     ngen_variables,
     nwm_variables,
     phase,
+    Profiler,
     read_dataset,
     read_json,
     report_usage,
@@ -75,6 +75,9 @@ class Extracted:
     t_ax: list | None = None
     nwm_data: object = None
     nwm_file_sizes_MB: list | None = None
+
+    def release(self):
+        self.data_array = None
 
 
 @dataclass
@@ -402,18 +405,18 @@ def forcing_grid2catchment(
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
 
-def load_geometry(cfg, log_file, timings):
+def load_geometry(cfg, profiler):
     """
     Read the catchment weights, nexus map, or restart mappings this run extracts against.
     """
     if cfg.data_source == "forcings":
-        with phase("READWEIGHTS", log_file, timings):
+        with phase("READWEIGHTS", profiler):
             if cfg.ii_verbose:
                 print("Obtaining weights\n", flush=True)
             weights_df, jcatchment_dict = multiprocess_hf2ds(
                 cfg.gpkg_files, cfg.nwm_forcing_files[0], cfg.nprocs
             )
-        with phase("CALC_WINDOW", log_file, timings):
+        with phase("CALC_WINDOW", profiler):
             x_min, x_max, y_min, y_max = get_window(weights_df)
         return Geometry(
             ncatchments=len(weights_df),
@@ -423,7 +426,7 @@ def load_geometry(cfg, log_file, timings):
         )
 
     if cfg.data_source == "channel_routing":
-        with phase("READMAP", log_file, timings):
+        with phase("READMAP", profiler):
             if cfg.ii_verbose:
                 print("Reading NWM to NGEN map\n", flush=True)
             full_nwm_ngen_map = read_json(cfg.map_file)
@@ -479,11 +482,11 @@ def extract_restart(cfg, geom):
     return Extracted(data_array=data_array, nwm_file_sizes_MB=nwm_file_sizes_MB)
 
 
-def extract(cfg, geom, nwm_meta, log_file, timings):
+def extract(cfg, geom, nwm_meta, profiler):
     """
     Pull the requested data out of the NWM files, ordered so time moves forward.
     """
-    with phase("PROCESSING", log_file, timings):
+    with phase("PROCESSING", profiler):
         if cfg.ii_verbose:
             print("Entering data extraction...\n", flush=True)
 
@@ -513,7 +516,7 @@ def extract(cfg, geom, nwm_meta, log_file, timings):
             )
 
     if cfg.ii_verbose:
-        t_extract = timings["PROCESSING"]
+        t_extract = profiler.timings["PROCESSING"]
         complexity = (len(cfg.nwm_forcing_files) * geom.ncatchments) / 10000
         print(
             f"Data extract processs: {cfg.nprocs:.2f}\nExtract time: {t_extract:.2f}" +
@@ -561,12 +564,12 @@ def write_netcdf_outputs(cfg, layout, geom, nwm_meta, extracted):
     )
 
 
-def write_outputs(cfg, layout, geom, nwm_meta, extracted, log_file, timings):
+def write_outputs(cfg, layout, geom, nwm_meta, extracted, profiler):
     """
     Write the extracted data out in every requested file type.
     """
     written = WriteResult()
-    with phase("FILEWRITING", log_file, timings):
+    with phase("FILEWRITING", profiler):
         if "netcdf" in cfg.output_file_type:
             written.netcdf_file_sizes_MB = write_netcdf_outputs(
                 cfg, layout, geom, nwm_meta, extracted
@@ -607,7 +610,7 @@ def write_outputs(cfg, layout, geom, nwm_meta, extracted, log_file, timings):
                 )
 
     if cfg.ii_verbose:
-        write_time = timings["FILEWRITING"]
+        write_time = profiler.timings["FILEWRITING"]
         print(
             f"\n\nWrite processs: {cfg.nprocs}\nWrite time: {write_time:.2f}" +
             f"\nWrite rate {geom.ncatchments / write_time:.2f} files/second\n",
@@ -666,6 +669,27 @@ def print_summary(cfg, layout, timings, runtime):
     print(msg)
 
 
+def fp_animation_and_filenames(cfg):
+    msg = "\nForcingProcessor has awoken. Let's do this."
+    for x in msg:
+        print(x, end="")
+        sys.stdout.flush()
+        time.sleep(0.05)
+    print("\n")
+    print("NWM file names:")
+    for jfile in cfg.nwm_forcing_files:
+        print(f"{jfile}")
+
+
+def tar_chunks(cfg, geom):
+    if cfg.data_source == "channel_routing" and geom.nwm_ngen_map is not None:
+        chunks = {1: list(geom.nwm_ngen_map.keys())}
+    else:
+        chunks = geom.jcatchment_dict
+
+    return chunks
+
+
 def prep_ngen_data(conf):
     """
     Primary function to retrieve forcing data and convert it into files that can be ingested into
@@ -679,68 +703,55 @@ def prep_ngen_data(conf):
     Docs: https://github.com/CIROH-UA/forcingprocessor/blob/main/README.md
     """
     t_start = time.perf_counter()
-    log_file = "./profile_fp.txt"
-    timings = {}
+    profiler = Profiler(log_file="./profile_fp.txt", timings={})
 
-    log_time("FORCINGPROCESSOR_START", log_file)
-    with phase("CONFIGURATION", log_file, timings):
+    profiler.log("FORCINGPROCESSOR_START")
+    with phase("CONFIGURATION", profiler):
         cfg = read_config(conf)
         layout = build_output_layout(cfg)
         nwm_meta = parse_nwm_filenames(cfg)
 
     if cfg.ii_verbose:
-        msg = "\nForcingProcessor has awoken. Let's do this."
-        for x in msg:
-            print(x, end="")
-            sys.stdout.flush()
-            time.sleep(0.05)
-        print("\n")
-        print("NWM file names:")
-        for jfile in cfg.nwm_forcing_files:
-            print(f"{jfile}")
+        fp_animation_and_filenames(cfg)
 
-    geom = load_geometry(cfg, log_file, timings)
+    geom = load_geometry(cfg, profiler)
 
-    with phase("STORE_INPUTS", log_file, timings):
+    with phase("STORE_INPUTS", profiler):
         s3_client = write_run_manifest(cfg, layout, geom.weights_df)
 
-    extracted = extract(cfg, geom, nwm_meta, log_file, timings)
-    written = write_outputs(cfg, layout, geom, nwm_meta, extracted, log_file, timings)
-    runtime = time.perf_counter() - t_start
+    extracted = extract(cfg, geom, nwm_meta, profiler)
+    written = write_outputs(cfg, layout, geom, nwm_meta, extracted, profiler)
+    core_runtime = time.perf_counter() - t_start
 
     if cfg.ii_plot:
         plot_outputs(cfg, layout, extracted, written.forcing_cat_ids)
 
     if cfg.ii_collect_stats:
-        with phase("COLLECT_STATS", log_file, timings):
-            collect_metadata(cfg, layout, s3_client, geom, extracted, written, runtime)
-        runtime += timings["COLLECT_STATS"]
-    extracted.data_array = None
+        with phase("COLLECT_STATS", profiler):
+            collect_metadata(cfg, layout, s3_client, geom, extracted, written, core_runtime)
+    extracted.release() # release data to manage memory
 
     if "tar" in cfg.output_file_type:
-        with phase("TAR", log_file, timings):
+        with phase("TAR", profiler):
             if cfg.ii_verbose:
                 print("\nWriting tarball...", flush=True)
-            if cfg.data_source == "channel_routing" and geom.nwm_ngen_map is not None:
-                chunks = {1: list(geom.nwm_ngen_map.keys())}
-            else:
-                chunks = geom.jcatchment_dict
+            chunks = tar_chunks(cfg, geom)
             multiprocess_write_tar(
                 cfg, layout.forcing_path, chunks, written.filenames, written.tar_buffs
             )
-        runtime += timings["TAR"]
 
     if cfg.ii_verbose:
-        print_summary(cfg, layout, timings, runtime)
-    log_time("FORCINGPROCESSOR_END", log_file)
+        total_runtime = sum(profiler.timings.values())
+        print_summary(cfg, layout, profiler.timings, total_runtime)
+    profiler.log("FORCINGPROCESSOR_END")
 
     if cfg.storage_type == "s3":
         bucket, key = convert_url2key(layout.metaf_path, cfg.storage_type)
         if s3_client is not None:
-            s3_client.upload_file(log_file, bucket, key + "/profile_fp.txt")
-        os.remove(log_file)
+            s3_client.upload_file(profiler.log_file, bucket, key + "/profile_fp.txt")
+        os.remove(profiler.log_file)
     else:
-        shutil.move(log_file, Path(layout.metaf_path, "profile_fp.txt"))
+        shutil.move(profiler.log_file, Path(layout.metaf_path, "profile_fp.txt"))
 
 
 def main():

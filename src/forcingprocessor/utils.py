@@ -4,6 +4,7 @@ from contextlib import contextmanager
 import re
 import time
 from pathlib import Path
+from dataclasses import dataclass
 
 import psutil
 import s3fs
@@ -97,25 +98,30 @@ def get_window(weights_df):
 
     return x_min, x_max, y_min, y_max
 
+@dataclass
+class Profiler:
+    """Log of the name of steps and their timings."""
+    log_file: str
+    timings: dict
 
-def log_time(label, log_file):
-    timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d%H%M%S")
-    with open(log_file, "a", encoding="utf-8") as f:
-        f.write(f"{label}: {timestamp}\n")
+    def log(self, label):
+        timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d%H%M%S")
+        with open(self.log_file, "a", encoding="utf-8") as f:
+            f.write(f"{label}: {timestamp}\n")
 
 
 @contextmanager
-def phase(label, log_file, timings=None):
+def phase(label, profiler):
     """
     Bracket a step of the run with START/END entries in the profile log and
     record its duration in the timings dict.
     """
-    log_time(f"{label}_START", log_file)
+    profiler.log(f"{label}_START")
     t0 = time.perf_counter()
     yield
-    if timings is not None:
-        timings[label] = time.perf_counter() - t0
-    log_time(f"{label}_END", log_file)
+
+    profiler.timings[label] = time.perf_counter() - t0
+    profiler.log(f"{label}_END")
 
 
 def read_json(path):
