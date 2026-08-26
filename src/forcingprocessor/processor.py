@@ -27,6 +27,7 @@ from forcingprocessor.config import (
     parse_nwm_filenames,
     read_config,
     write_run_manifest,
+    RunConfig,
 )
 from forcingprocessor.metadata import collect_metadata
 from forcingprocessor.plot_forcings import plot_ngen_forcings
@@ -64,7 +65,7 @@ class Geometry:
     nwm_ngen_map: dict | None = None
     cat_map: dict | None = None
     crosswalk_ds: xr.Dataset | None = None
-    routelink_ds: xr.Dataset | None= None
+    routelink_ds: xr.Dataset | None = None
 
 
 @dataclass
@@ -77,6 +78,7 @@ class Extracted:
     nwm_file_sizes_MB: list | None = None
 
     def release(self):
+        """Clear NWM data from memory."""
         self.data_array = None
 
 
@@ -92,10 +94,14 @@ class WriteResult:
     netcdf_file_sizes_MB: list | None = None
 
 
-def pool_filesystem(fs_type):
-    """
-    Filesystem handed to the extraction pool. Google is deferred to the workers
+def pool_filesystem(fs_type: str) -> s3fs.S3FileSystem | str | None:
+    """Filesystem handed to the extraction pool. Google is deferred to the workers
     because a GCSFileSystem does not survive the trip to a subprocess.
+
+    Args:
+        fs_type (str): String describing filesystem type
+    Returns:
+        s3fs.S3FileSystem | str | None: S3FileSystem for S3, "google" for GCS, None for local.
     """
     if fs_type == "s3":
         return s3fs.S3FileSystem(anon=True, client_kwargs={"region_name": "us-east-1"})
@@ -104,21 +110,37 @@ def pool_filesystem(fs_type):
     return None
 
 
-def multiprocess_data_extract(cfg, files: list, weights_df, window: list, fs):
+def multiprocess_data_extract(
+    cfg: RunConfig,
+    files: list[str],
+    weights_df: pd.DataFrame,
+    window: list[float],
+    fs: s3fs.S3FileSystem | str | None,
+) -> tuple[
+    np.ndarray[tuple[int, int, int], np.dtype[np.float64]],
+    list[str],
+    np.ndarray[tuple[int, int, int], np.dtype[np.float64]],
+    list[float],
+]:
     """
     Sets up the multiprocessing pool for forcing_grid2catchment and returns the data and time axis
     ordered in time.
 
     Parameters:
         cfg (RunConfig): Run configuration.
-        files (list): List of files to be processed.
-        weights_df (dict): DataFrame containing catchment weights.
-        window (list): Grid window the weights fall inside.
-        fs (s3 filesystem): s3fs
+        files (list[str]): List of files to be processed.
+        weights_df (pd.DataFrame): DataFrame containing catchment weights.
+        window (list[float]): Grid window the weights fall inside.
+        fs (s3fs.S3FileSystem | str | None): s3fs.S3FileSystem for S3, "google" for GCS, None for
+            local
 
     Returns:
-        data_array (numpy.ndarray): Concatenated array containing the extracted data.
-        t_ax_local (list): List of time axes corresponding to the extracted data.
+        data_array (np.ndarray[tuple[int, int, int], np.dtype[np.float64]]): Concatenated array
+            containing the extracted data.
+        t_ax_local (list[str]): List of time axes corresponding to the extracted data.
+        nwm_data (np.ndarray[tuple[int, int, int], np.dtype[np.float64]]): Extracted data to be
+            plotted.
+        nwm_file_sizes_out (list[float]): List of sizes of NWM files read in MB.
     """
     files_per_proc = distribute_work(files, cfg.nprocs)
     files_per_proc = load_balance(files_per_proc, cfg.ii_verbose)
@@ -164,21 +186,28 @@ def multiprocess_data_extract(cfg, files: list, weights_df, window: list, fs):
     return data_array, t_ax_local, nwm_data, nwm_file_sizes_out
 
 
-def multiprocess_chrt_extract(cfg, files: list, mapping: dict, fs):
+def multiprocess_chrt_extract(
+    cfg: RunConfig,
+    files: list[str],
+    mapping: dict[str, list[str]],
+    fs: s3fs.S3FileSystem | str | None,
+) -> tuple[np.ndarray[tuple[int], np.dtype[np.float64]], list[str], list[float]]:
     """
     Sets up the multiprocessing pool for forcing_grid2catchment and returns the data and time axis
     ordered in time.
 
     Parameters:
         cfg (RunConfig): Run configuration.
-        files (list): List of files to be processed.
-        mapping (dict): Dictionary that maps NWM IDs to NGEN IDs.
-        fs (filesystem): Filesystem for cloud storage reads.
+        files (list[str]): List of files to be processed.
+        mapping (dict[str, list[str]]): Dictionary that maps NWM IDs to NGEN IDs.
+        fs (s3fs.S3FileSystem | str | None): Filesystem for cloud storage reads. s3fs.S3FileSystem
+            for S3, "google" for GCS, None for local
 
     Returns:
-        data_array (numpy.ndarray): Concatenated array containing the extracted data.
-        t_ax_local (list): List of time axes corresponding to the extracted data.
-        nwm_file_sizes_out (list): List of file sizes of each input CHRTOUT file.
+        data_array (np.ndarray[tuple[int], np.dtype[np.float64]]): Concatenated array containing the
+            extracted data.
+        t_ax_local (list[str]): List of time axes corresponding to the extracted data.
+        nwm_file_sizes_out (list[float]): List of file sizes of each input CHRTOUT file.
     """
     files_per_proc = distribute_work(files, cfg.nprocs)
     files_per_proc = load_balance(files_per_proc, cfg.ii_verbose)
@@ -220,16 +249,16 @@ def multiprocess_chrt_extract(cfg, files: list, mapping: dict, fs):
 
 
 def forcing_grid2catchment(
-    nwm_files: list,
-    fs=None,
-    ngen_vars_plot=None,
-    weights_df=pd.DataFrame(),
-    window=None,
-    fs_type=None,
-    ii_verbose=False,
-    ii_plot=False,
-    nts_plot=1,
-):
+    nwm_files: list[str],
+    fs: s3fs.S3FileSystem | gcsfs.GCSFileSystem | None = None,
+    ngen_vars_plot: list[str] | None =None,
+    weights_df: pd.DataFrame | None = None,
+    window: list[float] | None =None,
+    fs_type: str | None = None,
+    ii_verbose: bool = False,
+    ii_plot: bool = False,
+    nts_plot: int = 1,
+) -> list[list[np.ndarray | str | float]]:
     """
     Retrieve catchment level data from national water model files
 
@@ -256,6 +285,8 @@ def forcing_grid2catchment(
         ngen_vars_plot = []
     if window is None:
         window = []
+    if weights_df is None:
+        weights_df = pd.DataFrame()
 
     topen = 0
     txrds = 0
@@ -294,7 +325,7 @@ def forcing_grid2catchment(
             else:
                 bucket_key = nwm_file
             file_obj = fs.open(bucket_key, mode="rb")
-            nwm_file_sizes_MB.append(file_obj.details["size"]) # type: ignore
+            nwm_file_sizes_MB.append(file_obj.details["size"])  # type: ignore
         elif "https://" in nwm_file:
             response = requests.get(nwm_file, timeout=10)
 
@@ -313,7 +344,7 @@ def forcing_grid2catchment(
             txrds += time.perf_counter() - t0
             t0 = time.perf_counter()
             shp = nwm_data["U2D"].shape
-            data_allvars = np.zeros(shape=(nvar, dy, dx), dtype=np.float64)
+            data_allvars = np.zeros(shape=(nvar, dy, dx), dtype=np.float64) # type: ignore
             for var_dx, jvar in enumerate(nwm_variables):
                 if "retrospective-2-1" in nwm_file or (
                     "south_north" in nwm_data.dims and "west_east" in nwm_data.dims
@@ -365,13 +396,16 @@ def forcing_grid2catchment(
             coverage = np.array(row.coverage)
             coverage_mat = np.repeat(coverage[None, :], nvar, axis=0)
 
-            weights_dx, weights_dy = np.unravel_index( # pylint: disable=unbalanced-tuple-unpacking
-                weights, (shp[2], shp[1]), order="F" # type: ignore
+            ( # pylint: disable=unbalanced-tuple-unpacking
+                weights_dx,
+                weights_dy,
+            ) = np.unravel_index(
+                weights, (shp[2], shp[1]), order="F"  # type: ignore
             )
             weights_dx_shifted = list(weights_dx - x_min)
             weights_dy_shifted = list(weights_dy - y_min)
             weights_window = np.ravel_multi_index(
-                np.array([weights_dx_shifted, weights_dy_shifted]), (dx, dy), order="F"
+                np.array([weights_dx_shifted, weights_dy_shifted]), (dx, dy), order="F" # type: ignore
             )
             jcatch_data_mask = data_allvars[:, weights_window]
 
@@ -387,11 +421,11 @@ def forcing_grid2catchment(
         ttotal = topen + txrds + tfill + tdata
         if ii_verbose:
             print(
-                f"\nAverage time for:\nfs open file: {topen / (j + 1):.2f} s" +
-                f"\nxarray open dataset: {txrds / (j + 1):.2f} s" +
-                f"\nfill array: {tfill / (j + 1):.2f} s" +
-                f"\ncalculate catchment values: {tdata / (j + 1):.2f} s" +
-                f"\ntotal {ttotal / (j + 1):.2f} s\npercent complete {100 * (j + 1) / nfiles:.2f}",
+                f"\nAverage time for:\nfs open file: {topen / (j + 1):.2f} s"
+                + f"\nxarray open dataset: {txrds / (j + 1):.2f} s"
+                + f"\nfill array: {tfill / (j + 1):.2f} s"
+                + f"\ncalculate catchment values: {tdata / (j + 1):.2f} s"
+                + f"\ntotal {ttotal / (j + 1):.2f} s\npercent complete {100 * (j + 1) / nfiles:.2f}",
                 end=None,
                 flush=True,
             )
@@ -447,6 +481,18 @@ def load_geometry(cfg, profiler):
 
 
 def extract_restart(cfg, geom):
+    """_summary_
+
+    Args:
+        cfg (_type_): _description_
+        geom (_type_): _description_
+
+    Raises:
+        RuntimeError: _description_
+
+    Returns:
+        _type_: _description_
+    """
     nwm_file = cfg.nwm_forcing_files[0]
     nwm_file_sizes_MB = []
     if cfg.fs_type == "google":
@@ -462,7 +508,7 @@ def extract_restart(cfg, geom):
         else:
             bucket_key = nwm_file
         file_obj = fs.open(bucket_key, mode="rb")
-        nwm_file_sizes_MB.append(file_obj.details["size"]) # type: ignore
+        nwm_file_sizes_MB.append(file_obj.details["size"])  # type: ignore
     elif "https://" in nwm_file:
         response = requests.get(nwm_file, timeout=10)
 
@@ -519,8 +565,8 @@ def extract(cfg, geom, nwm_meta, profiler):
         t_extract = profiler.timings["PROCESSING"]
         complexity = (len(cfg.nwm_forcing_files) * geom.ncatchments) / 10000
         print(
-            f"Data extract processs: {cfg.nprocs:.2f}\nExtract time: {t_extract:.2f}" +
-            f"\nComplexity: {complexity:.2f}\nScore: {complexity / t_extract:.2f}\n",
+            f"Data extract processs: {cfg.nprocs:.2f}\nExtract time: {t_extract:.2f}"
+            + f"\nComplexity: {complexity:.2f}\nScore: {complexity / t_extract:.2f}\n",
             end=None,
             flush=True,
         )
@@ -534,6 +580,18 @@ def extract(cfg, geom, nwm_meta, profiler):
 
 
 def write_netcdf_outputs(cfg, layout, geom, nwm_meta, extracted):
+    """_summary_
+
+    Args:
+        cfg (_type_): _description_
+        layout (_type_): _description_
+        geom (_type_): _description_
+        nwm_meta (_type_): _description_
+        extracted (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
     if cfg.data_source == "forcings":
         return multiprocess_write_netcdf(
             cfg,
@@ -548,8 +606,8 @@ def write_netcdf_outputs(cfg, layout, geom, nwm_meta, extracted):
             filename = "qlaterals.nc"
         else:
             filename = (
-                f"ngen.{nwm_meta.fcst_cycle}z.{nwm_meta.urlbase}.channel_routing." +
-                f"{nwm_meta.lead_start}_{nwm_meta.lead_end}.nc"
+                f"ngen.{nwm_meta.fcst_cycle}z.{nwm_meta.urlbase}.channel_routing."
+                + f"{nwm_meta.lead_start}_{nwm_meta.lead_end}.nc"
             )
         return write_netcdf_chrt(
             cfg.storage_type,
@@ -612,8 +670,8 @@ def write_outputs(cfg, layout, geom, nwm_meta, extracted, profiler):
     if cfg.ii_verbose:
         write_time = profiler.timings["FILEWRITING"]
         print(
-            f"\n\nWrite processs: {cfg.nprocs}\nWrite time: {write_time:.2f}" +
-            f"\nWrite rate {geom.ncatchments / write_time:.2f} files/second\n",
+            f"\n\nWrite processs: {cfg.nprocs}\nWrite time: {write_time:.2f}"
+            + f"\nWrite rate {geom.ncatchments / write_time:.2f} files/second\n",
             end=None,
             flush=True,
         )
@@ -728,8 +786,10 @@ def prep_ngen_data(conf):
 
     if cfg.ii_collect_stats:
         with phase("COLLECT_STATS", profiler):
-            collect_metadata(cfg, layout, s3_client, geom, extracted, written, core_runtime)
-    extracted.release() # release data to manage memory
+            collect_metadata(
+                cfg, layout, s3_client, geom, extracted, written, core_runtime
+            )
+    extracted.release()  # release data to manage memory
 
     if "tar" in cfg.output_file_type:
         with phase("TAR", profiler):

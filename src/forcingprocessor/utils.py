@@ -105,6 +105,11 @@ class Profiler:
     timings: dict
 
     def log(self, label):
+        """Write name of processing milestone and time of completion to log file.
+
+        Args:
+            label (str): Name of processing milestone.
+        """
         timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d%H%M%S")
         with open(self.log_file, "a", encoding="utf-8") as f:
             f.write(f"{label}: {timestamp}\n")
