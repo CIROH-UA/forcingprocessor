@@ -52,9 +52,9 @@ class RunConfig:
 
 @dataclass
 class OutputLayout:
-    output_path: object
-    forcing_path: object
-    meta_path: object
+    output_path: Path
+    forcing_path: Path
+    meta_path: Path
     metaf_path: Path
 
 

@@ -1,3 +1,5 @@
+"""Main forcingprocessor module."""
+
 import argparse
 import concurrent.futures as cf
 import json
@@ -9,6 +11,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from io import BytesIO
 from pathlib import Path
+import subprocess
 
 import gcsfs
 import geopandas as gpd
@@ -76,7 +79,7 @@ class Extracted:
 
     data_array: xr.Dataset | np.ndarray | None
     t_ax: list | None = None
-    nwm_data: object = None
+    nwm_data: np.ndarray | None = None
     nwm_file_sizes_MB: list | None = None
 
     def release(self):
@@ -96,7 +99,7 @@ class WriteResult:
     netcdf_file_sizes_MB: list | None = None
 
 
-def pool_filesystem(fs_type: str) -> s3fs.S3FileSystem | str | None:
+def pool_filesystem(fs_type: str | None) -> s3fs.S3FileSystem | str | None:
     """Filesystem handed to the extraction pool. Google is deferred to the workers
     because a GCSFileSystem does not survive the trip to a subprocess.
 
@@ -503,6 +506,7 @@ def extract_restart(cfg: RunConfig, geom: Geometry) -> Extracted:
 
     Raises:
         RuntimeError: Raised when a request to the HTTP NWM file link returns an error status code.
+        TypeError: Raised when geom is not configured properly
 
     Returns:
         Extracted: Restart data extracted from the NWM files, ordered in time.
@@ -536,9 +540,18 @@ def extract_restart(cfg: RunConfig, geom: Geometry) -> Extracted:
         nwm_file_sizes_MB.append(os.path.getsize(nwm_file) / B2MB)
 
     nwm_ds = xr.open_dataset(file_obj).load()
-    data_array = create_restart(
-        geom.cat_map, geom.crosswalk_ds, nwm_ds, geom.routelink_ds
-    )
+    if (
+        geom.cat_map is not None
+        and geom.crosswalk_ds is not None
+        and geom.routelink_ds is not None
+    ):
+        data_array = create_restart(
+            geom.cat_map, geom.crosswalk_ds, nwm_ds, geom.routelink_ds
+        )
+    else:
+        raise TypeError(
+            "geom.cat_map, geom.crosswalk_ds, and geom.routelink_ds must not be None"
+        )
     return Extracted(data_array=data_array, nwm_file_sizes_MB=nwm_file_sizes_MB)
 
 
@@ -554,6 +567,9 @@ def extract(
             times of coverage.
         profiler (Profiler): This run's profiling log and timings.
 
+    Raises:
+        TypeError: Raised when cfg or geom are not configured properly.
+
     Returns:
         Extracted: Data extracted from the NWM files, ordered in time.
     """
@@ -565,15 +581,22 @@ def extract(
             return extract_restart(cfg, geom)
 
         fs = pool_filesystem(cfg.fs_type)
+
         if cfg.data_source == "forcings":
-            data_array, t_ax, nwm_data, sizes = multiprocess_data_extract(
-                cfg, cfg.nwm_forcing_files, geom.weights_df, geom.window, fs
-            )
+            if geom.weights_df is not None and geom.window is not None:
+                data_array, t_ax, nwm_data, sizes = multiprocess_data_extract(
+                    cfg, cfg.nwm_forcing_files, geom.weights_df, geom.window, fs
+                )
+            else:
+                raise TypeError("geom.weights_df and geom.window cannot be None")
         else:
             nwm_data = None
-            data_array, t_ax, sizes = multiprocess_chrt_extract(
-                cfg, cfg.nwm_forcing_files, geom.nwm_ngen_map, fs
-            )
+            if geom.nwm_ngen_map is not None:
+                data_array, t_ax, sizes = multiprocess_chrt_extract(
+                    cfg, cfg.nwm_forcing_files, geom.nwm_ngen_map, fs
+                )
+            else:
+                raise TypeError("geom.nwm_ngen_map cannot be None")
 
         if datetime.strptime(t_ax[0], "%Y-%m-%d %H:%M:%S") > datetime.strptime(
             t_ax[-1], "%Y-%m-%d %H:%M:%S"
@@ -621,6 +644,9 @@ def write_netcdf_outputs(
             times of coverage.
         extracted (Extracted): Data extracted from the NWM files, ordered in time.
 
+    Raises:
+        TypeError: Raised if an incorrect data type is passed to the writer function.
+
     Returns:
         list[float]: List of netCDF file sizes in MB.
     """
@@ -641,17 +667,26 @@ def write_netcdf_outputs(
                 f"ngen.{nwm_meta.fcst_cycle}z.{nwm_meta.urlbase}.channel_routing."
                 + f"{nwm_meta.lead_start}_{nwm_meta.lead_end}.nc"
             )
-        return write_netcdf_chrt(
-            cfg.storage_type,
-            layout.forcing_path,
-            extracted.data_array,
-            extracted.t_ax,
-            filename,
+        if isinstance(extracted.data_array, np.ndarray) and isinstance(
+            extracted.t_ax, list
+        ):
+            return write_netcdf_chrt(
+                cfg.storage_type,
+                layout.forcing_path,
+                extracted.data_array,
+                extracted.t_ax,
+                filename,
+            )
+        raise TypeError(
+            "extracted.data_array must be an np.ndarray and extracted.t_ax must be a list"
         )
     filename = f"channel_restart_{nwm_meta.restart_date}_{nwm_meta.restart_hour}0000.nc"
-    return write_netcdf_restart(
-        cfg.storage_type, layout.forcing_path, extracted.data_array, filename
-    )
+    if isinstance(extracted.data_array, xr.Dataset):
+        return write_netcdf_restart(
+            cfg.storage_type, layout.forcing_path, extracted.data_array, filename
+        )
+
+    raise TypeError("extracted.data_array must be an xr.Dataset")
 
 
 def write_outputs(
@@ -672,6 +707,9 @@ def write_outputs(
             times of coverage.
         extracted (Extracted): Data extracted from the NWM files, ordered in time.
         profiler (Profiler): This run's profiling log and timings..
+
+    Raises:
+        TypeError: Raised when geom is not configured properly
 
     Returns:
         WriteResult: Identifiers and file sizes reported back by the write processes.
@@ -694,9 +732,15 @@ def write_outputs(
             or any(x in cfg.output_file_type for x in ["csv", "parquet", "tar"])
         ):
             if cfg.data_source == "forcings":
-                catchments = list(geom.weights_df.index)
+                if geom.weights_df is not None:
+                    catchments = list(geom.weights_df.index)
+                else:
+                    raise TypeError("geom.weights_df must not be None")
             elif cfg.data_source == "channel_routing":
-                catchments = list(geom.nwm_ngen_map.keys())
+                if geom.nwm_ngen_map is not None:
+                    catchments = list(geom.nwm_ngen_map.keys())
+                else:
+                    raise TypeError("geom.nwm_ngen_map must not be None")
             else:
                 catchments = None
 
@@ -745,6 +789,7 @@ def plot_outputs(
     Raises:
         Warning: Raised when a geopackage is not available, or when more than one geopackage is
             present.
+        TypeError: Raised when extracted is not configured properly.
     """
     if cfg.gpkg_files[0].endswith(".parquet"):
         print("Plotting currently not implemented for parquet, need geopackage")
@@ -764,18 +809,30 @@ def plot_outputs(
         gif_out = Path("./GIFs")
     else:
         gif_out = Path(layout.meta_path, "GIFs")
-    plot_ngen_forcings(
-        extracted.nwm_data,
-        extracted.data_array[:, jplot_vars, :],
-        cfg.gpkg_files[0],
-        extracted.t_ax,
-        cat_ids,
-        cfg.ngen_vars_plot,
-        gif_out,
-    )
-    if cfg.storage_type == "s3":
-        os.system(f"aws s3 sync ./GIFs {layout.meta_path}/GIFs")
 
+    if (
+        extracted.nwm_data is not None
+        and extracted.data_array is not None
+        and extracted.t_ax is not None
+    ):
+        if isinstance(extracted.data_array, np.ndarray):
+            plot_ngen_forcings(
+                extracted.nwm_data,
+                extracted.data_array[:, jplot_vars, :],
+                cfg.gpkg_files[0],
+                extracted.t_ax,
+                cat_ids,
+                cfg.ngen_vars_plot,
+                gif_out,
+            )
+        else:
+            raise TypeError("extracted.data_array must be an np.ndarray")
+    else:
+        raise TypeError(
+            "extracted.nwm_data, extracted.data_array, and extracted.t_ax must not be None"
+        )
+    if cfg.storage_type == "s3":
+        subprocess.run(["aws", "s3", "sync", "./GIFS", f"{layout.meta_path}/GIFs"], check=True)
 
 def print_summary(cfg: RunConfig, layout: OutputLayout, timings: dict) -> None:
     """Print a summary of the run and its timings to the console.
@@ -827,12 +884,18 @@ def tar_chunks(cfg: RunConfig, geom: Geometry) -> dict[int, list[str]] | None:
         cfg (RunConfig): forcingprocessor configuration information.
         geom (Geometry):Catchment geometries and ID mappings for this run.
 
+    Raises:
+        TypeError: Raised when geom.nwm_ngen_map is not set (is None).
+
     Returns:
         dict[int, list[str]] | None: Dictionary where every entry's values is a list of the
             catchments in a specific chunk.
     """
-    if cfg.data_source == "channel_routing" and geom.nwm_ngen_map is not None:
-        chunks = {1: list(geom.nwm_ngen_map.keys())}
+    if cfg.data_source == "channel_routing":
+        if geom.nwm_ngen_map is not None:
+            chunks = {1: list(geom.nwm_ngen_map.keys())}
+        else:
+            raise TypeError("geom.nwm_ngen_map must not be None")
     else:
         chunks = geom.jcatchment_dict
 
@@ -848,6 +911,9 @@ def prep_ngen_data(conf: dict) -> None:
         conf (dict): forcingprocessor config file
             https://github.com/CIROH-UA/forcingprocessor/blob/main/configs/conf_fp.json, read as a
             dict
+
+    Raises:
+        TypeError: Raised when plotter is not configured properly
     """
     t_start = time.perf_counter()
     profiler = Profiler(log_file="./profile_fp.txt", timings={})
@@ -871,7 +937,10 @@ def prep_ngen_data(conf: dict) -> None:
     core_runtime = time.perf_counter() - t_start
 
     if cfg.ii_plot:
-        plot_outputs(cfg, layout, extracted, written.forcing_cat_ids)
+        if written.forcing_cat_ids is not None:
+            plot_outputs(cfg, layout, extracted, written.forcing_cat_ids)
+        else:
+            raise TypeError("written.forcing_cat_ids must not be None")
 
     if cfg.ii_collect_stats:
         with phase("COLLECT_STATS", profiler):
@@ -916,7 +985,7 @@ def main():
         conf = json.loads(args.infile)
     else:
         if "s3://" in args.infile:
-            os.system(f"wget {args.infile}")
+            subprocess.run(["wget", f"{args.infile}"], check=True)
             filename = args.infile.split("/")[-1]
             conf = json.load(open(filename, encoding="utf-8"))
         else:
