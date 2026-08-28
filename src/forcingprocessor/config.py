@@ -1,3 +1,5 @@
+"""Tools to handle configuration data."""
+
 import json
 import os
 import re
@@ -8,6 +10,7 @@ from io import BytesIO
 from pathlib import Path
 
 import boto3
+import pandas as pd
 
 from forcingprocessor.utils import (
     convert_url2key,
@@ -28,6 +31,8 @@ FILENAME_PATTERNS = {
 
 @dataclass
 class RunConfig:
+    """Contains information from the forcingprocessor configuration file."""
+
     conf: dict
     data_source: str
     gpkg_files: list
@@ -52,14 +57,18 @@ class RunConfig:
 
 @dataclass
 class OutputLayout:
-    output_path: Path
-    forcing_path: Path
-    meta_path: Path
-    metaf_path: Path
+    """Contains information on the path(s) where output files should be written."""
+
+    output_path: Path | str
+    forcing_path: Path | str
+    meta_path: Path | str
+    metaf_path: Path | str
 
 
 @dataclass
 class NWMFileMetadata:
+    """Contains information about the NWM data derived from the NWM file source URL."""
+
     urlbase: str = ""
     fcst_cycle: str | None = None
     lead_start: str = ""
@@ -68,12 +77,21 @@ class NWMFileMetadata:
     restart_hour: str = ""
 
 
-def read_config(conf):
+def read_config(conf: dict) -> RunConfig:
     """
     Parse and validate a forcingprocessor config into a RunConfig.
 
-    Inputs: forcingprocessor config file
-        https://github.com/CIROH-UA/forcingprocessor/blob/main/configs/conf_fp.json
+    Args:
+        conf (dict): forcingprocessor config file
+        https://github.com/CIROH-UA/forcingprocessor/blob/main/configs/conf_fp.json read as a dict
+
+    Raises:
+        ValueError: Raised when the number of VPU IDs is not the same as the number of passed
+            geopackages.
+        RuntimeError: Raised when plotting is turned on for a channel routing or a restart run.
+
+    Returns:
+        RunConfig: Information from the config file.
     """
     forcing = conf["forcing"]
     gpkg_file = forcing.get("gpkg_file", None)
@@ -170,9 +188,18 @@ def read_config(conf):
     )
 
 
-def build_output_layout(cfg):
+def build_output_layout(cfg: RunConfig) -> OutputLayout:
     """
     Resolve the output directory tree, creating it for local runs.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+
+    Raises:
+        TypeError: Raised if cfg is configured incorrectly
+
+    Returns:
+        OutputLayout: Information on the path(s) where output files should be written.
     """
     output_path = cfg.output_path
     if cfg.data_source == "channel_routing":
@@ -206,14 +233,27 @@ def build_output_layout(cfg):
         layout.meta_path,
         layout.metaf_path,
     ]:
-        jpath.mkdir(parents=True, exist_ok=True)
+        if isinstance(jpath, Path):
+            jpath.mkdir(parents=True, exist_ok=True)
+        else:
+            raise TypeError("The paths in layout must be Path objects.")
     return layout
 
 
-def write_run_manifest(cfg, layout, weights_df=None):
-    """
-    Store the inputs that produced this run alongside its outputs. Returns the
+def write_run_manifest(
+    cfg: RunConfig, layout: OutputLayout, weights_df: pd.DataFrame | None = None
+) -> None:
+    """Store the inputs that produced this run alongside its outputs. Returns the
     s3 client used, which is reused for metadata writes, or None for local runs.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+        layout (OutputLayout): Information on the path(s) where outpul files should be written.
+        weights_df (pd.DataFrame | None, optional): Dataframe of catchment weights. Defaults to
+            None.
+
+    Returns:
+        None | S3.Client: Filesystem. None if not S3.
     """
     if cfg.storage_type == "local":
         with open(Path(layout.metaf_path, "conf.json"), "w", encoding="utf-8") as f:
@@ -237,12 +277,17 @@ def write_run_manifest(cfg, layout, weights_df=None):
         weights_df.to_parquet(buf, index=False)
         buf.seek(0)
         s3.put_object(Bucket=bucket, Key=f"{key}/weights.parquet", Body=buf.getvalue())
-    return s3
+    return s3 # type: ignore
 
 
-def parse_nwm_filenames(cfg):
-    """
-    Extract forecast cycle and lead time from the first and last file names.
+def parse_nwm_filenames(cfg: RunConfig) -> NWMFileMetadata:
+    """Extract forecast cycle and lead time from the first and last file names.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information
+
+    Returns:
+        NWMFileMetadata: Information about the NWM data sourced from the URL.
     """
     pattern = FILENAME_PATTERNS[cfg.data_source]
     files = cfg.nwm_forcing_files
@@ -263,8 +308,8 @@ def parse_nwm_filenames(cfg):
         meta.lead_start = match.group(5) + match.group(6)
     else:
         print(
-            "Could not extract forecast cycle and lead start from the first NWM forcing file: " +
-            f"{files[0]}"
+            "Could not extract forecast cycle and lead start from the first NWM forcing file: "
+            + f"{files[0]}"
         )
 
     match = re.search(pattern, files[-1])

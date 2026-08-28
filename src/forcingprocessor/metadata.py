@@ -1,3 +1,5 @@
+"""Functions for calculating and writing metadata."""
+
 import numpy as np
 import pandas as pd
 
@@ -5,14 +7,28 @@ from forcingprocessor.utils import convert_url2key, ngen_variables, nwm_variable
 from forcingprocessor.writers import write_df
 
 
-def summarize_sizes(sizes):
+def summarize_sizes(
+    sizes: np.ndarray | None,
+) -> tuple[float, float, np.ndarray | np.float32 | np.float64 | float]:
+    """Given a list of file sizes, calculate the average, median, and standard deviation of the file
+    sizes.
+
+    Args:
+        sizes (np.ndarray | None): List of files for which to summarize sizes.
+
+    Returns:
+        tuple[float, float, np.ndarray | np.float32 | np.float64 | float]: The average, median, and
+            standard deviation of the sizes.
+    """
     if sizes is None or len(sizes) == 0:
         return 0, 0, 0
     sizes = np.fromiter(sizes, dtype=float)
     return np.average(sizes), np.median(sizes), np.std(sizes)
 
 
-def calculate_vpu_precip_stats(data_array, catchment_ids, jcatchment_dict):
+def calculate_vpu_precip_stats(
+    data_array: np.ndarray, catchment_ids: list, jcatchment_dict: dict
+) -> pd.DataFrame:
     """
     Calculate compact precipitation statistics for each VPU.
 

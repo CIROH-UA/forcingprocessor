@@ -226,13 +226,13 @@ def create_restart(
     return restart
 
 
-def write_netcdf_restart(storage_type: str, prefix: Path, ds: xr.Dataset, name: str):
+def write_netcdf_restart(storage_type: str, prefix: Path | str, ds: xr.Dataset, name: str):
     """
     Write restart data to a NetCDF file.
 
     Parameters:
         storage_type (str): s3 or local
-        prefix (Path): filename prefix
+        prefix (Path | str): filename prefix
         data (xr.Dataset): restart file
         name (str): string for the filename
     Returns:

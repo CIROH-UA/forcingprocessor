@@ -162,14 +162,14 @@ def channelrouting_nwm2ngen(
 
 
 def write_netcdf_chrt(
-    storage_type: str, prefix: Path, data: np.ndarray, times: list, name: str
+    storage_type: str, prefix: Path | str, data: np.ndarray, times: list, name: str
 ):
     """
     Write channel routing data to a NetCDF file.
 
     Parameters:
         storage_type (str): s3 or local
-        prefix (Path): filename prefix
+        prefix (Path | str): filename prefix
         data (numpy.ndarray): 2D array with dimensions (nexus-id, qlateral).
         times (list): list representing time axis.
         name (str): string for the filename

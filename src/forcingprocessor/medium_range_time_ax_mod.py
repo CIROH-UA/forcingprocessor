@@ -20,15 +20,15 @@ def cut_forcing_data_for_ensemble(
     """
     Shift the time axis of the dataset based on the ensemble member.
 
-    # https://onlinelibrary.wiley.com/doi/epdf/10.1111/1752-1688.13184
+    https://onlinelibrary.wiley.com/doi/epdf/10.1111/1752-1688.13184
 
-    Parameters:
-    ds (xarray.Dataset): Input dataset with Time coordinate.
-    ens_member (int): Ensemble member number (2-7).
-    time_shift_hours (int): Number of hours to shift the time coordinate.
+    Args:
+        ds (xarray.Dataset): Input dataset with Time coordinate.
+        ens_member (int): Ensemble member number (2-7).
+        time_shift_hours (int): Number of hours to shift the time coordinate.
 
     Returns:
-    np.ndarray: Shifted time axis.
+        xr.Dataset: Shifted time axis.
     """
     start_cut = (ens_member - 1) * time_shift_hours
     end_cut = 204 + start_cut
