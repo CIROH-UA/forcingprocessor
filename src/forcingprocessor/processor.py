@@ -28,6 +28,8 @@ from forcingprocessor.config import (
     read_config,
     write_run_manifest,
     RunConfig,
+    NWMFileMetadata,
+    OutputLayout,
 )
 from forcingprocessor.metadata import collect_metadata
 from forcingprocessor.plot_forcings import plot_ngen_forcings
@@ -126,7 +128,7 @@ def multiprocess_data_extract(
     Sets up the multiprocessing pool for forcing_grid2catchment and returns the data and time axis
     ordered in time.
 
-    Parameters:
+    Args:
         cfg (RunConfig): Run configuration.
         files (list[str]): List of files to be processed.
         weights_df (pd.DataFrame): DataFrame containing catchment weights.
@@ -196,7 +198,7 @@ def multiprocess_chrt_extract(
     Sets up the multiprocessing pool for forcing_grid2catchment and returns the data and time axis
     ordered in time.
 
-    Parameters:
+    Args:
         cfg (RunConfig): Run configuration.
         files (list[str]): List of files to be processed.
         mapping (dict[str, list[str]]): Dictionary that maps NWM IDs to NGEN IDs.
@@ -251,9 +253,9 @@ def multiprocess_chrt_extract(
 def forcing_grid2catchment(
     nwm_files: list[str],
     fs: s3fs.S3FileSystem | gcsfs.GCSFileSystem | None = None,
-    ngen_vars_plot: list[str] | None =None,
+    ngen_vars_plot: list[str] | None = None,
     weights_df: pd.DataFrame | None = None,
-    window: list[float] | None =None,
+    window: list[float] | None = None,
     fs_type: str | None = None,
     ii_verbose: bool = False,
     ii_plot: bool = False,
@@ -262,24 +264,29 @@ def forcing_grid2catchment(
     """
     Retrieve catchment level data from national water model files
 
-    Inputs:
-    nwm_files: list of filenames (urls for remote, local paths otherwise),
-    fs: an optional file system for cloud storage reads
-    ngen_variables: List of variables to read out of the nwm netcdf
-    ngen_vars_plot: List of ngen variables to plot
-    weights_df: dataframe of weights. weights are values 0-1 corresponding to the percentage an
-        overlapping a grid point on a polygon
-    fs_type: type of file system
-    ii_verbose: verbosity
-    ii_plot: save data for plotting
-    nts_plot: number of time steps to include in gif
+    Args:
+        nwm_files (list[str]): list of filenames (URLs for remote, local paths otherwise)
+        fs (s3fs.S3FileSystem | gcsfs.GCSFileSystem | None): an optional file system for cloud
+            storage reads. This is an s3fs.S3FileSystem for S3, a gcsfs.GCSFileSystem for GCS, or
+            None for local. Defaults to None.
+        ngen_vars_plot (list[str]): List of ngen variables to plot. Defaults to None.
+        weights_df (pd.DataFrame | None): dataframe of weights. weights are values 0-1 corresponding
+            to the percentage an overlapping a grid point on a polygon. Defaults to None.
+        fs_type (str | None): type of file system. Defaults to None.
+        ii_verbose (bool): verbosity. Defaults to False.
+        ii_plot (bool): save data for plotting. Defaults to False.
+        nts_plot (int): number of time steps to include in gif. Defaults to 1.
 
-    Outputs: [data_list, t_list, nwm_data]
-    data_list : list of ngen forcings ordered in time.
-    ngen_forcings : 2d darray (forcing_variable x catchment)
-    t : model_output_valid_time for each
-    nwm_data : nwm data saved for plotting.
-    nwm_data : 3d array (forcing_variable x west_east x south_north)
+    Returns:
+        list[list[np.ndarray | str | float]]: The following are the contents of the list. A list is
+            returned instead of a tuple for multiprocessing purposes.
+            data_list (list[np.ndarray(Tuple[int, int], np.dtype(np.float64))]): list of ngen
+                forcing arrays ordered in time.
+            t_list (list[str]): model_output_valid_time for each file
+            nwm_data_plot (list[np.ndarray(Tuple[int, int, int], np.dtype(np.float64))]): nwm data
+                saved for plotting.
+            nwm_file_sizes_MB (list[float]): list of file sizes in MB, corresponding to the input
+                nwm_files
     """
     if ngen_vars_plot is None:
         ngen_vars_plot = []
@@ -344,7 +351,7 @@ def forcing_grid2catchment(
             txrds += time.perf_counter() - t0
             t0 = time.perf_counter()
             shp = nwm_data["U2D"].shape
-            data_allvars = np.zeros(shape=(nvar, dy, dx), dtype=np.float64) # type: ignore
+            data_allvars = np.zeros(shape=(nvar, dy, dx), dtype=np.float64)  # type: ignore
             for var_dx, jvar in enumerate(nwm_variables):
                 if "retrospective-2-1" in nwm_file or (
                     "south_north" in nwm_data.dims and "west_east" in nwm_data.dims
@@ -396,7 +403,7 @@ def forcing_grid2catchment(
             coverage = np.array(row.coverage)
             coverage_mat = np.repeat(coverage[None, :], nvar, axis=0)
 
-            ( # pylint: disable=unbalanced-tuple-unpacking
+            (  # pylint: disable=unbalanced-tuple-unpacking
                 weights_dx,
                 weights_dy,
             ) = np.unravel_index(
@@ -405,7 +412,7 @@ def forcing_grid2catchment(
             weights_dx_shifted = list(weights_dx - x_min)
             weights_dy_shifted = list(weights_dy - y_min)
             weights_window = np.ravel_multi_index(
-                np.array([weights_dx_shifted, weights_dy_shifted]), (dx, dy), order="F" # type: ignore
+                np.array([weights_dx_shifted, weights_dy_shifted]), (dx, dy), order="F"  # type: ignore
             )
             jcatch_data_mask = data_allvars[:, weights_window]
 
@@ -425,7 +432,8 @@ def forcing_grid2catchment(
                 + f"\nxarray open dataset: {txrds / (j + 1):.2f} s"
                 + f"\nfill array: {tfill / (j + 1):.2f} s"
                 + f"\ncalculate catchment values: {tdata / (j + 1):.2f} s"
-                + f"\ntotal {ttotal / (j + 1):.2f} s\npercent complete {100 * (j + 1) / nfiles:.2f}",
+                + f"\ntotal {ttotal / (j + 1):.2f} s"
+                + f"\npercent complete {100 * (j + 1) / nfiles:.2f}",
                 end=None,
                 flush=True,
             )
@@ -439,9 +447,15 @@ def forcing_grid2catchment(
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
 
-def load_geometry(cfg, profiler):
-    """
-    Read the catchment weights, nexus map, or restart mappings this run extracts against.
+def load_geometry(cfg: RunConfig, profiler: Profiler) -> Geometry:
+    """Read the catchment weights, nexus map, or restart mappings this run extracts against.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+        profiler (Profiler): This run's profiling log and timings.
+
+    Returns:
+        Geometry: catchment geometries and ID mappings for this run.
     """
     if cfg.data_source == "forcings":
         with phase("READWEIGHTS", profiler):
@@ -480,18 +494,18 @@ def load_geometry(cfg, profiler):
     )
 
 
-def extract_restart(cfg, geom):
-    """_summary_
+def extract_restart(cfg: RunConfig, geom: Geometry) -> Extracted:
+    """Create a t-route restart file from NWM analysis/assimilation channel routing data.
 
     Args:
-        cfg (_type_): _description_
-        geom (_type_): _description_
+        cfg (RunConfig): forcingprocessor configuration information.
+        profiler (Profiler): This run's profiling log and timings.
 
     Raises:
-        RuntimeError: _description_
+        RuntimeError: Raised when a request to the HTTP NWM file link returns an error status code.
 
     Returns:
-        _type_: _description_
+        Extracted: Restart data extracted from the NWM files, ordered in time.
     """
     nwm_file = cfg.nwm_forcing_files[0]
     nwm_file_sizes_MB = []
@@ -528,9 +542,20 @@ def extract_restart(cfg, geom):
     return Extracted(data_array=data_array, nwm_file_sizes_MB=nwm_file_sizes_MB)
 
 
-def extract(cfg, geom, nwm_meta, profiler):
-    """
-    Pull the requested data out of the NWM files, ordered so time moves forward.
+def extract(
+    cfg: RunConfig, geom: Geometry, nwm_meta: NWMFileMetadata, profiler: Profiler
+) -> Extracted:
+    """Pull the requested data out of the NWM files, ordered so time moves forward.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+        geom (Geometry): Catchment geometries and ID mappings for this run.
+        nwm_meta (NWMFileMetadata): Information pulled from source data URL, like forecast cycle and
+            times of coverage.
+        profiler (Profiler): This run's profiling log and timings.
+
+    Returns:
+        Extracted: Data extracted from the NWM files, ordered in time.
     """
     with phase("PROCESSING", profiler):
         if cfg.ii_verbose:
@@ -579,18 +604,25 @@ def extract(cfg, geom, nwm_meta, profiler):
     )
 
 
-def write_netcdf_outputs(cfg, layout, geom, nwm_meta, extracted):
-    """_summary_
+def write_netcdf_outputs(
+    cfg: RunConfig,
+    layout: OutputLayout,
+    geom: Geometry,
+    nwm_meta: NWMFileMetadata,
+    extracted: Extracted,
+) -> list[float]:
+    """Write output data in a netcdf format locally or in the cloud.
 
     Args:
-        cfg (_type_): _description_
-        layout (_type_): _description_
-        geom (_type_): _description_
-        nwm_meta (_type_): _description_
-        extracted (_type_): _description_
+        cfg (RunConfig): forcingprocessor configuration information.
+        layout (OutputLayout): Information on location where files should be written.
+        geom (Geometry): Catchment geometries and ID mappings for this run.
+        nwm_meta (NWMFileMetadata): Information pulled from source data URL, like forecast cycle and
+            times of coverage.
+        extracted (Extracted): Data extracted from the NWM files, ordered in time.
 
     Returns:
-        _type_: _description_
+        list[float]: List of netCDF file sizes in MB.
     """
     if cfg.data_source == "forcings":
         return multiprocess_write_netcdf(
@@ -622,9 +654,27 @@ def write_netcdf_outputs(cfg, layout, geom, nwm_meta, extracted):
     )
 
 
-def write_outputs(cfg, layout, geom, nwm_meta, extracted, profiler):
-    """
-    Write the extracted data out in every requested file type.
+def write_outputs(
+    cfg: RunConfig,
+    layout: OutputLayout,
+    geom: Geometry,
+    nwm_meta: NWMFileMetadata,
+    extracted: Extracted,
+    profiler: Profiler,
+) -> WriteResult:
+    """Write the extracted data out in every requested file type.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+        layout (OutputLayout): Information on location where files should be written.
+        geom (Geometry): Catchment geometries and ID mappings for this run.
+        nwm_meta (NWMFileMetadata): Information pulled from source data URL, like forecast cycle and
+            times of coverage.
+        extracted (Extracted): Data extracted from the NWM files, ordered in time.
+        profiler (Profiler): This run's profiling log and timings..
+
+    Returns:
+        WriteResult: Identifiers and file sizes reported back by the write processes.
     """
     written = WriteResult()
     with phase("FILEWRITING", profiler):
@@ -678,7 +728,24 @@ def write_outputs(cfg, layout, geom, nwm_meta, extracted, profiler):
     return written
 
 
-def plot_outputs(cfg, layout, extracted, forcing_cat_ids):
+def plot_outputs(
+    cfg: RunConfig,
+    layout: OutputLayout,
+    extracted: Extracted,
+    forcing_cat_ids: list[str],
+) -> None:
+    """Generate side-by-side GIF comparing NWM and NGEN forcing data.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+        layout (OutputLayout): Information on location where files should be written.
+        extracted (Extracted): Data extracted from the NWM files, ordered in time.
+        forcing_cat_ids (list[str]): List of cat-IDs to be plotted.
+
+    Raises:
+        Warning: Raised when a geopackage is not available, or when more than one geopackage is
+            present.
+    """
     if cfg.gpkg_files[0].endswith(".parquet"):
         print("Plotting currently not implemented for parquet, need geopackage")
         return
@@ -710,7 +777,14 @@ def plot_outputs(cfg, layout, extracted, forcing_cat_ids):
         os.system(f"aws s3 sync ./GIFs {layout.meta_path}/GIFs")
 
 
-def print_summary(cfg, layout, timings, runtime):
+def print_summary(cfg: RunConfig, layout: OutputLayout, timings: dict) -> None:
+    """Print a summary of the run and its timings to the console.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+        layout (OutputLayout): Information on location where files should be written.
+        timings (dict): Each step that was executed and the amount of time that was taken.
+    """
     print("\n\n--------SUMMARY-------")
     msg = f"\nData has been written to {layout.output_path}"
     if cfg.data_source == "forcings":
@@ -723,11 +797,18 @@ def print_summary(cfg, layout, timings, runtime):
         msg += f"\nCollect stats : {timings['COLLECT_STATS']:.2f}s"
     if "tar" in cfg.output_file_type:
         msg += f"\nWrite tar     : {timings['TAR']:.2f}s"
+
+    runtime = sum(timings.values())
     msg += f"\nRuntime       : {runtime:.2f}s\n"
     print(msg)
 
 
-def fp_animation_and_filenames(cfg):
+def fp_animation_and_filenames(cfg: RunConfig) -> None:
+    """Prints a startup animation and all NWM files to be processed to the console.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+    """
     msg = "\nForcingProcessor has awoken. Let's do this."
     for x in msg:
         print(x, end="")
@@ -739,7 +820,17 @@ def fp_animation_and_filenames(cfg):
         print(f"{jfile}")
 
 
-def tar_chunks(cfg, geom):
+def tar_chunks(cfg: RunConfig, geom: Geometry) -> dict[int, list[str]] | None:
+    """Calculates catchment chunks for writing tar files.
+
+    Args:
+        cfg (RunConfig): forcingprocessor configuration information.
+        geom (Geometry):Catchment geometries and ID mappings for this run.
+
+    Returns:
+        dict[int, list[str]] | None: Dictionary where every entry's values is a list of the
+            catchments in a specific chunk.
+    """
     if cfg.data_source == "channel_routing" and geom.nwm_ngen_map is not None:
         chunks = {1: list(geom.nwm_ngen_map.keys())}
     else:
@@ -748,17 +839,15 @@ def tar_chunks(cfg, geom):
     return chunks
 
 
-def prep_ngen_data(conf):
+def prep_ngen_data(conf: dict) -> None:
     """
     Primary function to retrieve forcing data and convert it into files that can be ingested into
-    ngen.
+    ngen. See https://github.com/CIROH-UA/forcingprocessor/blob/main/README.md.
 
-    Inputs: forcingprocessor config file
-        https://github.com/CIROH-UA/forcingprocessor/blob/main/configs/conf_fp.json
-
-    Outputs: ngen forcing files of file type csv, parquet, netcdf, or gzippped tar
-
-    Docs: https://github.com/CIROH-UA/forcingprocessor/blob/main/README.md
+    Args:
+        conf (dict): forcingprocessor config file
+            https://github.com/CIROH-UA/forcingprocessor/blob/main/configs/conf_fp.json, read as a
+            dict
     """
     t_start = time.perf_counter()
     profiler = Profiler(log_file="./profile_fp.txt", timings={})
@@ -801,8 +890,7 @@ def prep_ngen_data(conf):
             )
 
     if cfg.ii_verbose:
-        total_runtime = sum(profiler.timings.values())
-        print_summary(cfg, layout, profiler.timings, total_runtime)
+        print_summary(cfg, layout, profiler.timings)
     profiler.log("FORCINGPROCESSOR_END")
 
     if cfg.storage_type == "s3":
@@ -815,6 +903,7 @@ def prep_ngen_data(conf):
 
 
 def main():
+    """Read config json file and run through all forcingprocessor steps."""
     parser = argparse.ArgumentParser()
     parser.add_argument(
         dest="infile",
