@@ -1,0 +1,170 @@
+name: Propose a Forcing Processor Contribution
+description: Propose a change to how gridded forcing data becomes catchment-averaged NextGen forcings
+title: "[Forcing] "
+labels: ["community contribution"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The Forcing Processor runs as its own scheduled datastream over CONUS, and its output feeds every simulation datastream in the NRDS. Changes here have the broadest reach of any contribution, and the broadest blast radius.
+
+        It is also a standalone containerized project, so it can be developed and tested independently of the NRDS deployment.
+
+        **Code is what makes a suggestion actionable here.** Proposing that the NRDS ingest a different forcing product starts a useful conversation, but the contribution is the code that processes it. If you aren't in a position to write that code, open a *Suggest an Idea* issue in [ngen-datastream](https://github.com/CIROH-UA/ngen-datastream/issues/new/choose) instead.
+
+  - type: input
+    id: summary
+    attributes:
+      label: One-line summary
+      placeholder: "Elevation-band weighting to preserve orographic precipitation gradients"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: contribution_type
+    attributes:
+      label: Type of contribution
+      options:
+        - New forcing source
+        - Different temporal resolution (sub-hourly, daily, extended lookback)
+        - Different spatial resolution, grid definition, or projection
+        - Alternative forcing weight generation
+        - Alternative catchment averaging algorithm
+        - Output format, compression, or efficiency
+        - Bug fix or maintenance
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What does the change do?
+    validations:
+      required: true
+
+  - type: textarea
+    id: rationale
+    attributes:
+      label: Justification
+      description: What limitation does this remove? For a new source, what does having it available let the community investigate?
+    validations:
+      required: true
+
+  - type: textarea
+    id: characterization
+    attributes:
+      label: How do the resulting forcings differ?
+      description: |
+        **Expected for weight generation and averaging algorithm changes.** A new algorithm without a comparison against current behavior is difficult to evaluate.
+
+        Where do the forcings diverge most, and by how much? Complex terrain, convective precipitation, large catchments?
+    validations:
+      required: false
+
+  - type: dropdown
+    id: model_agnostic
+    attributes:
+      label: Does this remain model-agnostic?
+      description: |
+        Forcing preparation is shared across every downstream formulation. A product built around one formulation's assumptions is no longer neutral across all of them. That is acceptable, and may mean the right structure is a separate upstream datastream composed with the formulations that want it.
+      options:
+        - Yes, neutral across all formulations
+        - No, tuned to specific formulation assumptions
+        - Not applicable
+    validations:
+      required: true
+
+  - type: dropdown
+    id: compute_impact
+    attributes:
+      label: Compute impact
+      description: This code runs over CONUS on the operational cadence, so runtime changes are multiplied across every cycle and every downstream datastream.
+      options:
+        - Negative, faster or smaller output
+        - Neutral
+        - Increases cost (explain below)
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: compute_detail
+    attributes:
+      label: Compute impact detail
+      description: Profile before contributing. Quantify runtime, memory, and output size against current behavior.
+      placeholder: |
+        Before: ~X minutes per VPU per cycle
+        After: ~Y minutes per VPU per cycle
+        Output size change: ...
+        Profiling method: ...
+    validations:
+      required: false
+
+
+  - type: dropdown
+    id: retention
+    attributes:
+      label: If this produces new output, how long should it be retained?
+      description: Storage is a recurring cost that scales with how much history the system keeps. A shorter window may be entirely sufficient.
+      options:
+        - Not applicable, produces no new output
+        - A rolling window of recent cycles is enough
+        - 1 year
+        - 5 years
+        - For the operational life of the datastream
+        - Not sure, would like to discuss
+    validations:
+      required: true
+
+  - type: input
+    id: source_link
+    attributes:
+      label: Data source (new source contributions only)
+      description: Where the product is publicly hosted, its format, and its access pattern.
+    validations:
+      required: false
+
+  - type: input
+    id: hydrofabric_version
+    attributes:
+      label: Hydrofabric version tested against
+      placeholder: "v2.2"
+    validations:
+      required: false
+
+  - type: textarea
+    id: artifacts
+    attributes:
+      label: Links to code, branch, or draft PR
+    validations:
+      required: true
+
+  - type: dropdown
+    id: testing
+    attributes:
+      label: Testing status
+      options:
+        - Tested at CONUS scale
+        - Tested on one or more VPUs
+        - Tested on a small subset only
+        - Not yet tested
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: Checklist
+      options:
+        - label: Code is publicly hosted and versioned
+        - label: I have stated the compute impact
+        - label: For algorithm changes, I have characterized how the resulting forcings differ
+        - label: I have considered the effect on downstream simulation datastreams
+
+  - type: input
+    id: contact
+    attributes:
+      label: Contributor and affiliation
+    validations:
+      required: false
