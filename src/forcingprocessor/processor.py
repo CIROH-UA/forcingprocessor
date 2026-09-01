@@ -613,7 +613,7 @@ def extract(
         t_extract = profiler.timings["PROCESSING"]
         complexity = (len(cfg.nwm_forcing_files) * geom.ncatchments) / 10000
         print(
-            f"Data extract processs: {cfg.nprocs:.2f}\nExtract time: {t_extract:.2f}"
+            f"Data extract processes: {cfg.nprocs:.2f}\nExtract time: {t_extract:.2f}"
             + f"\nComplexity: {complexity:.2f}\nScore: {complexity / t_extract:.2f}\n",
             end=None,
             flush=True,
@@ -787,15 +787,13 @@ def plot_outputs(
         forcing_cat_ids (list[str]): List of cat-IDs to be plotted.
 
     Raises:
-        Warning: Raised when a geopackage is not available, or when more than one geopackage is
-            present.
         TypeError: Raised when extracted is not configured properly.
     """
     if cfg.gpkg_files[0].endswith(".parquet"):
         print("Plotting currently not implemented for parquet, need geopackage")
         return
     if len(cfg.gpkg_files) > 1:
-        raise Warning(f"Plotting only the first geopackage {cfg.gpkg_files[0]}")
+        print(f"Plotting only the first geopackage {cfg.gpkg_files[0]}")
 
     cat_ids = ["cat-" + x for x in forcing_cat_ids]
     jplot_vars = np.array(
@@ -950,13 +948,18 @@ def prep_ngen_data(conf: dict) -> None:
     extracted.release()  # release data to manage memory
 
     if "tar" in cfg.output_file_type:
-        with phase("TAR", profiler):
-            if cfg.ii_verbose:
-                print("\nWriting tarball...", flush=True)
-            chunks = tar_chunks(cfg, geom)
-            multiprocess_write_tar(
-                cfg, layout.forcing_path, chunks, written.filenames, written.tar_buffs
+        if cfg.data_source == "troute_restarts":
+            print(
+                "TAR file writing is not implemented for t-route restarts, skipping tarball creation"
             )
+        else:
+            with phase("TAR", profiler):
+                if cfg.ii_verbose:
+                    print("\nWriting tarball...", flush=True)
+                chunks = tar_chunks(cfg, geom)
+                multiprocess_write_tar(
+                    cfg, layout.forcing_path, chunks, written.filenames, written.tar_buffs
+                )
 
     if cfg.ii_verbose:
         print_summary(cfg, layout, profiler.timings)

@@ -87,7 +87,7 @@ def get_projection(raster_file):
     return projection, raster_data
 
 
-def calc_weights_from_gdf(gdf: gpd.GeoDataFrame, raster_file: str, nf: str) -> pd.DataFrame:
+def calc_weights_from_gdf(gdf: gpd.GeoDataFrame, raster_file: str, nf: int) -> pd.DataFrame:
     # Create a dict of weights from the "divides" layer geodataframe
     # keys are divide_ids, values are a 2 element list
     # with the first element being a list of cell_id's

@@ -137,7 +137,7 @@ def write_data_df(
             df_data = data[:, j, :]
             try:
                 df = pd.DataFrame(df_data, columns=["feature_id", "q_lateral"])
-            except:
+            except Exception:
                 print("data source", data_source_arg)
                 raise
             df = df[["q_lateral"]]
@@ -151,20 +151,18 @@ def write_data_df(
         else:
             nex_id = jcatch
 
-        if "parquet" in output_file_type or "csv" in output_file_type:
-            if "netcdf" in output_file_type:
-                output_file_type.pop(output_file_type.index("netcdf"))
+        df_ext = next((x for x in output_file_type if x in ("parquet", "csv")), None)
+        if df_ext is not None:
             if data_source_arg == "forcings":
-                filename = f"cat-{cat_id}.{output_file_type[0]}"
+                filename = f"cat-{cat_id}.{df_ext}"
             else:
-                filename = f"{nex_id}.{output_file_type[0]}"
-            if j == 0:
-                if ii_verbose:
-                    print(
-                        f"{pid} writing {nfiles} dataframes to {output_file_type}",
-                        end=None,
-                        flush=True,
-                    )
+                filename = f"{nex_id}.{df_ext}"
+            if j == 0 and ii_verbose:
+                print(
+                    f"{pid} writing {nfiles} dataframes to {df_ext}",
+                    end=None,
+                    flush=True,
+                )
             kwargs = (
                 {"client": s3_client, "bucket": bucket, "key_prefix": key_prefix}
                 if storage_type == "s3"
@@ -220,7 +218,7 @@ def write_data_df(
                 msg += f"df conversion    {t_df:.2f}s\n"
                 msg += f"estimated total write time {estimate_total_time:.2f}s\n"
                 msg += f"progress                   {(j + 1) / nfiles * 100:.2f}%\n"
-                msg += f"Bandwidth (all processs)   {bandwidth_Mbps:.2f} Mbps"
+                msg += f"Bandwidth (all processes)   {bandwidth_Mbps:.2f} Mbps"
                 print(msg, flush=True)
 
     return forcing_cat_ids, filenames, [file_size_MB], [file_zipped_size_MB], tar_buffs
