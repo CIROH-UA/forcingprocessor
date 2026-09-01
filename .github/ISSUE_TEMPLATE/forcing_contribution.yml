@@ -1,7 +1,7 @@
 name: Propose a Forcing Processor Contribution
 description: Propose a change to how gridded forcing data becomes catchment-averaged NextGen forcings
 title: "[Forcing] "
-labels: ["community contribution"]
+labels: ["Community Contribution"]
 body:
   - type: markdown
     attributes:
