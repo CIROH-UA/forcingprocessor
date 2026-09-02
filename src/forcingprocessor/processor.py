@@ -99,7 +99,7 @@ class WriteResult:
     netcdf_file_sizes_MB: list | None = None
 
 
-def pool_filesystem(fs_type: str | None) -> s3fs.S3FileSystem | str | None:
+def _pool_filesystem(fs_type: str | None) -> s3fs.S3FileSystem | str | None:
     """Filesystem handed to the extraction pool. Google is deferred to the workers
     because a GCSFileSystem does not survive the trip to a subprocess.
 
@@ -115,7 +115,7 @@ def pool_filesystem(fs_type: str | None) -> s3fs.S3FileSystem | str | None:
     return None
 
 
-def multiprocess_data_extract(
+def _multiprocess_data_extract(
     cfg: RunConfig,
     files: list[str],
     weights_df: pd.DataFrame,
@@ -165,7 +165,7 @@ def multiprocess_data_extract(
     nwm_file_sizes = []
     with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
         for results in pool.map(
-            forcing_grid2catchment,
+            _forcing_grid2catchment,
             files_list,
             [fs for x in range(nprocs)],
             [cfg.ngen_vars_plot for x in range(nprocs)],
@@ -191,7 +191,7 @@ def multiprocess_data_extract(
     return data_array, t_ax_local, nwm_data, nwm_file_sizes_out
 
 
-def multiprocess_chrt_extract(
+def _multiprocess_chrt_extract(
     cfg: RunConfig,
     files: list[str],
     mapping: dict[str, list[str]],
@@ -253,7 +253,7 @@ def multiprocess_chrt_extract(
     return data_array, t_ax_local, nwm_file_sizes_out
 
 
-def forcing_grid2catchment(
+def _forcing_grid2catchment(
     nwm_files: list[str],
     fs: s3fs.S3FileSystem | gcsfs.GCSFileSystem | None = None,
     ngen_vars_plot: list[str] | None = None,
@@ -415,7 +415,9 @@ def forcing_grid2catchment(
             weights_dx_shifted = list(weights_dx - x_min)
             weights_dy_shifted = list(weights_dy - y_min)
             weights_window = np.ravel_multi_index(
-                np.array([weights_dx_shifted, weights_dy_shifted]), (dx, dy), order="F"  # type: ignore
+                np.array([weights_dx_shifted, weights_dy_shifted]),
+                (dx, dy), # type: ignore
+                order="F"
             )
             jcatch_data_mask = data_allvars[:, weights_window]
 
@@ -450,16 +452,7 @@ def forcing_grid2catchment(
     return [data_list, t_list, nwm_data_plot, nwm_file_sizes_MB]
 
 
-def load_geometry(cfg: RunConfig, profiler: Profiler) -> Geometry:
-    """Read the catchment weights, nexus map, or restart mappings this run extracts against.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-        profiler (Profiler): This run's profiling log and timings.
-
-    Returns:
-        Geometry: catchment geometries and ID mappings for this run.
-    """
+def _load_geometry(cfg: RunConfig, profiler: Profiler) -> Geometry:
     if cfg.data_source == "forcings":
         with phase("READWEIGHTS", profiler):
             if cfg.ii_verbose:
@@ -497,7 +490,7 @@ def load_geometry(cfg: RunConfig, profiler: Profiler) -> Geometry:
     )
 
 
-def extract_restart(cfg: RunConfig, geom: Geometry) -> Extracted:
+def _extract_restart(cfg: RunConfig, geom: Geometry) -> Extracted:
     """Create a t-route restart file from NWM analysis/assimilation channel routing data.
 
     Args:
@@ -555,7 +548,7 @@ def extract_restart(cfg: RunConfig, geom: Geometry) -> Extracted:
     return Extracted(data_array=data_array, nwm_file_sizes_MB=nwm_file_sizes_MB)
 
 
-def extract(
+def _extract(
     cfg: RunConfig, geom: Geometry, nwm_meta: NWMFileMetadata, profiler: Profiler
 ) -> Extracted:
     """Pull the requested data out of the NWM files, ordered so time moves forward.
@@ -578,13 +571,13 @@ def extract(
             print("Entering data extraction...\n", flush=True)
 
         if cfg.data_source == "troute_restarts":
-            return extract_restart(cfg, geom)
+            return _extract_restart(cfg, geom)
 
-        fs = pool_filesystem(cfg.fs_type)
+        fs = _pool_filesystem(cfg.fs_type)
 
         if cfg.data_source == "forcings":
             if geom.weights_df is not None and geom.window is not None:
-                data_array, t_ax, nwm_data, sizes = multiprocess_data_extract(
+                data_array, t_ax, nwm_data, sizes = _multiprocess_data_extract(
                     cfg, cfg.nwm_forcing_files, geom.weights_df, geom.window, fs
                 )
             else:
@@ -592,7 +585,7 @@ def extract(
         else:
             nwm_data = None
             if geom.nwm_ngen_map is not None:
-                data_array, t_ax, sizes = multiprocess_chrt_extract(
+                data_array, t_ax, sizes = _multiprocess_chrt_extract(
                     cfg, cfg.nwm_forcing_files, geom.nwm_ngen_map, fs
                 )
             else:
@@ -627,7 +620,7 @@ def extract(
     )
 
 
-def write_netcdf_outputs(
+def _write_netcdf_outputs(
     cfg: RunConfig,
     layout: OutputLayout,
     geom: Geometry,
@@ -689,7 +682,7 @@ def write_netcdf_outputs(
     raise TypeError("extracted.data_array must be an xr.Dataset")
 
 
-def write_outputs(
+def _write_outputs(
     cfg: RunConfig,
     layout: OutputLayout,
     geom: Geometry,
@@ -717,7 +710,7 @@ def write_outputs(
     written = WriteResult()
     with phase("FILEWRITING", profiler):
         if "netcdf" in cfg.output_file_type:
-            written.netcdf_file_sizes_MB = write_netcdf_outputs(
+            written.netcdf_file_sizes_MB = _write_netcdf_outputs(
                 cfg, layout, geom, nwm_meta, extracted
             )
         if cfg.ii_verbose:
@@ -772,7 +765,7 @@ def write_outputs(
     return written
 
 
-def plot_outputs(
+def _plot_outputs(
     cfg: RunConfig,
     layout: OutputLayout,
     extracted: Extracted,
@@ -830,9 +823,12 @@ def plot_outputs(
             "extracted.nwm_data, extracted.data_array, and extracted.t_ax must not be None"
         )
     if cfg.storage_type == "s3":
-        subprocess.run(["aws", "s3", "sync", "./GIFS", f"{layout.meta_path}/GIFs"], check=True)
+        subprocess.run(
+            ["aws", "s3", "sync", "./GIFS", f"{layout.meta_path}/GIFs"], check=True
+        )
 
-def print_summary(cfg: RunConfig, layout: OutputLayout, timings: dict) -> None:
+
+def _print_summary(cfg: RunConfig, layout: OutputLayout, timings: dict) -> None:
     """Print a summary of the run and its timings to the console.
 
     Args:
@@ -858,7 +854,7 @@ def print_summary(cfg: RunConfig, layout: OutputLayout, timings: dict) -> None:
     print(msg)
 
 
-def fp_animation_and_filenames(cfg: RunConfig) -> None:
+def _fp_animation_and_filenames(cfg: RunConfig) -> None:
     """Prints a startup animation and all NWM files to be processed to the console.
 
     Args:
@@ -875,7 +871,7 @@ def fp_animation_and_filenames(cfg: RunConfig) -> None:
         print(f"{jfile}")
 
 
-def tar_chunks(cfg: RunConfig, geom: Geometry) -> dict[int, list[str]] | None:
+def _tar_chunks(cfg: RunConfig, geom: Geometry) -> dict[int, list[str]] | None:
     """Calculates catchment chunks for writing tar files.
 
     Args:
@@ -923,20 +919,20 @@ def prep_ngen_data(conf: dict) -> None:
         nwm_meta = parse_nwm_filenames(cfg)
 
     if cfg.ii_verbose:
-        fp_animation_and_filenames(cfg)
+        _fp_animation_and_filenames(cfg)
 
-    geom = load_geometry(cfg, profiler)
+    geom = _load_geometry(cfg, profiler)
 
     with phase("STORE_INPUTS", profiler):
         s3_client = write_run_manifest(cfg, layout, geom.weights_df)
 
-    extracted = extract(cfg, geom, nwm_meta, profiler)
-    written = write_outputs(cfg, layout, geom, nwm_meta, extracted, profiler)
+    extracted = _extract(cfg, geom, nwm_meta, profiler)
+    written = _write_outputs(cfg, layout, geom, nwm_meta, extracted, profiler)
     core_runtime = time.perf_counter() - t_start
 
     if cfg.ii_plot:
         if written.forcing_cat_ids is not None:
-            plot_outputs(cfg, layout, extracted, written.forcing_cat_ids)
+            _plot_outputs(cfg, layout, extracted, written.forcing_cat_ids)
         else:
             raise TypeError("written.forcing_cat_ids must not be None")
 
@@ -950,19 +946,24 @@ def prep_ngen_data(conf: dict) -> None:
     if "tar" in cfg.output_file_type:
         if cfg.data_source == "troute_restarts":
             print(
-                "TAR file writing is not implemented for t-route restarts, skipping tarball creation"
+                "TAR file writing is not implemented for t-route restarts, " +
+                "skipping tarball creation"
             )
         else:
             with phase("TAR", profiler):
                 if cfg.ii_verbose:
                     print("\nWriting tarball...", flush=True)
-                chunks = tar_chunks(cfg, geom)
+                chunks = _tar_chunks(cfg, geom)
                 multiprocess_write_tar(
-                    cfg, layout.forcing_path, chunks, written.filenames, written.tar_buffs
+                    cfg,
+                    layout.forcing_path,
+                    chunks,
+                    written.filenames,
+                    written.tar_buffs,
                 )
 
     if cfg.ii_verbose:
-        print_summary(cfg, layout, profiler.timings)
+        _print_summary(cfg, layout, profiler.timings)
     profiler.log("FORCINGPROCESSOR_END")
 
     if cfg.storage_type == "s3":

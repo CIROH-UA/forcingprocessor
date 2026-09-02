@@ -15,7 +15,7 @@ from forcingprocessor.utils import convert_url2key
 B2MB = 1048576
 
 
-def average_nwm_variables(
+def _average_nwm_variables(
     nwm_ids_flat: np.ndarray, cat_ids_flat: np.ndarray, nwm_ds: xr.Dataset
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """
@@ -53,7 +53,7 @@ def average_nwm_variables(
     return nwm_agg, mapping_df
 
 
-def average_rtlink_variables(
+def _average_rtlink_variables(
     nwm_ids_flat: np.ndarray, mapping_df: pd.DataFrame, routelink_ds: xr.Dataset
 ) -> pd.DataFrame:
     """
@@ -87,7 +87,7 @@ def average_rtlink_variables(
     return rl_agg
 
 
-def quadratic_formula(b_coeff: np.ndarray, c_coeff: np.ndarray) -> np.ndarray:
+def _quadratic_formula(b_coeff: np.ndarray, c_coeff: np.ndarray) -> np.ndarray:
     """
     Vectorized quadratic formula solver (assumes no a coefficient). Only returns positive root
 
@@ -104,7 +104,7 @@ def quadratic_formula(b_coeff: np.ndarray, c_coeff: np.ndarray) -> np.ndarray:
     return h_positive
 
 
-def solve_depth_geom(
+def _solve_depth_geom(
     streamflow: np.ndarray,
     velocity: np.ndarray,
     tw: np.ndarray,
@@ -145,7 +145,7 @@ def solve_depth_geom(
 
     # Quadratic: h^2 + cs*bw*h - cs*area = 0
     # Using formula: h = (-b + sqrt(b^2 + 4*c)) / 2, where a=1
-    h_positive = quadratic_formula(
+    h_positive = _quadratic_formula(
         cs[below_bankfull] * bw[below_bankfull],
         -cs[below_bankfull] * area[below_bankfull],
     )
@@ -193,13 +193,13 @@ def create_restart(
     nwm_ids_flat = np.array(nwm_ids_flat, dtype=float)
     cat_ids_flat = np.array(cat_ids_flat)
 
-    nwm_agg, mapping_df = average_nwm_variables(nwm_ids_flat, cat_ids_flat, nwm_ds)
-    rl_agg = average_rtlink_variables(nwm_ids_flat, mapping_df, routelink_ds)
+    nwm_agg, mapping_df = _average_nwm_variables(nwm_ids_flat, cat_ids_flat, nwm_ds)
+    rl_agg =_average_rtlink_variables(nwm_ids_flat, mapping_df, routelink_ds)
     result_df = pd.DataFrame({"cat_id": crosswalk_ds["link"].values})
     result_df = result_df.join(nwm_agg, on="cat_id").join(rl_agg, on="cat_id").fillna(0)
 
     # depth calculation
-    depths = solve_depth_geom(
+    depths = _solve_depth_geom(
         streamflow=np.array(result_df["streamflow"].values),
         velocity=np.array(result_df["velocity"].values),
         tw=np.array(result_df["TopWdth"].values),

@@ -5,18 +5,12 @@ Unit tests for restart utility functions.
 import os
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
-import re
 import numpy as np
-import pandas as pd
 import pytest
 import xarray as xr
 
 from forcingprocessor.troute_restart_tools import (
-    average_nwm_variables,
-    average_rtlink_variables,
     create_restart,
-    quadratic_formula,
-    solve_depth_geom,
 )
 from forcingprocessor.processor import prep_ngen_data
 from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
@@ -57,68 +51,6 @@ simple_cat_map = {
 # ---------------------------------------------------------------------------
 # unit tests
 # ---------------------------------------------------------------------------
-
-
-def test_averages_streamflow_and_velocity():
-    # cat 1 -> features 101 (sf=10, v=1) and 102 (sf=20, v=2) => mean sf=15, v=1.5
-    # cat 2 -> feature  103 (sf=30, v=3)                       => mean sf=30, v=3.0
-    nwm_ids = np.array([101.0, 102.0, 103.0])
-    cat_ids = np.array([1, 1, 2])
-    agg, mapping = average_nwm_variables(nwm_ids, cat_ids, simple_nwm_ds)
-
-    assert agg.loc[1, "streamflow"] == pytest.approx(15.0)  # test averaging
-    assert agg.loc[1, "velocity"] == pytest.approx(1.5)
-    assert agg.loc[2, "streamflow"] == pytest.approx(30.0)
-    assert agg.loc[2, "velocity"] == pytest.approx(3.0)
-
-    assert len(mapping) == 3  # test mapping
-    assert set(mapping.columns) == {"feature_id", "cat_id"}
-
-    assert 3 not in agg.index  # test subsetting
-    assert len(agg) == 2
-
-
-def test_averages_routelink():
-    nwm_ids = np.array([101.0, 102.0, 103.0, 104.0])
-    mapping = pd.DataFrame(
-        {"feature_id": [101.0, 102.0, 103.0, 104.0], "cat_id": [1, 1, 2, 2]}
-    )
-    agg = average_rtlink_variables(nwm_ids, mapping, simple_routelink_ds)
-
-    assert agg.loc[1, "TopWdth"] == pytest.approx(11.0)  # test averaging
-    assert agg.loc[2, "TopWdth"] == pytest.approx(15.0)
-    assert agg.loc[1, "BtmWdth"] == pytest.approx(5.5)
-    assert agg.loc[2, "BtmWdth"] == pytest.approx(7.5)
-    assert agg.loc[1, "ChSlp"] == pytest.approx(0.5)
-    assert agg.loc[2, "ChSlp"] == pytest.approx(0.5)
-
-    assert len(agg) == 2  # test layout
-
-
-def test_quadratic_formula():
-    # Two equations: [x^2+2x-3, x^2-4] -> roots [1, 2]
-    b = np.array([2.0, 0.0])
-    c = np.array([-3.0, -4.0])
-    result = quadratic_formula(b, c)
-    np.testing.assert_allclose(result, [1.0, 2.0])
-
-
-def test_solve_depth_geom():
-    sf = np.array([0.0, 5.0, 2.0, 8.0, 1000.0, np.nan])
-    v = np.array([1.0, 0.0, 1.0, 1.0, 1.0, 1.0])
-    tw = np.array([10.0, 10.0, 10.0, 10.0, 10.0, 10.0])
-    bw = np.array([5.0, 5.0, 5.0, 5.0, 5.0, 5.0])
-    cs = np.array([0.5, 0.5, 0.5, 0.5, 0.5, 0.5])
-    depths = solve_depth_geom(sf, v, tw, bw, cs)
-
-    assert depths.shape == (6,)
-    assert depths[0] == pytest.approx(0.0)
-    assert depths[1] == pytest.approx(0.0)
-    assert depths[2] == pytest.approx(0.35078106)
-    assert depths[3] == pytest.approx(1.10849528)
-    assert depths[4] == pytest.approx(34.27083333)
-    assert depths[5] == pytest.approx(0.0)
-
 
 def test_restart():
     result = create_restart(

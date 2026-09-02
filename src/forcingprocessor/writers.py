@@ -1,3 +1,6 @@
+"""Utility functions to write data to S3 or local storage in various formats (CSV, Parquet, NetCDF,
+tar)."""
+
 import concurrent.futures as cf
 import gzip
 import os
@@ -32,7 +35,7 @@ def write_df(
     client: boto3.client = None, # type: ignore
     bucket: str = "",
     key_prefix: str = "",
-    local_path: str = "",
+    local_path: str | Path = "",
 ):
     """
     Write a DataFrame to S3 or local storage as a CSV or Parquet file.
@@ -82,7 +85,7 @@ def write_df(
         raise ValueError("Only CSV and Parquet output is supported by write_df")
 
 
-def write_data_df(
+def _write_data_df(
     data,
     t_ax,
     catchments,
@@ -292,7 +295,7 @@ def multiprocess_write_df(cfg, data, t_ax, catchments, out_path):
     tar_buffs = []
     with cf.ProcessPoolExecutor(max_workers=nprocs) as pool:
         for results in pool.map(
-            write_data_df,
+            _write_data_df,
             worker_data_list,
             worker_time_list,
             worker_catchment_list,
@@ -327,7 +330,7 @@ def multiprocess_write_df(cfg, data, t_ax, catchments, out_path):
     return flat_ids, flat_filenames, flat_file_sizes, flat_file_sizes_zipped, flat_tar
 
 
-def write_tar(tar_buffs, jcatchunk, catchments, filenames, storage_type, forcing_path):
+def _write_tar(tar_buffs, jcatchunk, catchments, filenames, storage_type, forcing_path):
     """
     Write DataFrames to a tar archive and upload to S3 or save locally as a compressed tar file.
 
@@ -403,7 +406,7 @@ def multiprocess_write_tar(cfg, forcing_path, catchments, filenames, tar_buffs):
 
     with cf.ProcessPoolExecutor(max_workers=min(njobs, cfg.nprocs)) as pool:
         for _ in pool.map(
-            write_tar,
+            _write_tar,
             tar_buffs_list,
             jcatchunk_list,
             catchments_list,
@@ -414,7 +417,7 @@ def multiprocess_write_tar(cfg, forcing_path, catchments, filenames, tar_buffs):
             pass
 
 
-def write_netcdf(
+def _write_netcdf(
     data: np.ndarray,
     t_ax: list,
     catchments: list,
@@ -499,7 +502,7 @@ def multiprocess_write_netcdf(cfg, forcing_path, nwm_meta, data, jcatchment_dict
     netcdf_cat_file_sizes = []
     with cf.ProcessPoolExecutor(max_workers=min(njobs, cfg.nprocs)) as pool:
         for results in pool.map(
-            write_netcdf,
+            _write_netcdf,
             data_list,
             [t_ax for x in range(njobs)],
             catchments_list,

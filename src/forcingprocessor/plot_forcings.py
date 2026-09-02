@@ -1,6 +1,6 @@
+"""Tools for plotting NGEN and NWM forcings side-by-side as gifs."""
 import argparse
 import os
-from typing import Tuple
 from pathlib import Path
 from datetime import datetime
 import matplotlib as mpl
@@ -19,23 +19,25 @@ mpl.use("Agg")
 
 
 def plot_ngen_forcings(
-    nwm_data: np.ndarray,
-    ngen_data: np.ndarray,
+    nwm_data: np.ndarray[tuple[int, int, int, int], np.dtype[np.float64]],
+    ngen_data: np.ndarray[tuple[int, int, int], np.dtype[np.float64]],
     geopackage: str,
-    t_ax: list | pd.Series,
-    catchment_ids: list | np.ndarray,
-    ngen_vars_plot: list | None = None,
+    t_ax: list[str] | pd.Series,
+    catchment_ids: list[str] | np.ndarray,
+    ngen_vars_plot: list[str] | None = None,
     output_dir: Path = Path("./GIFs"),
-):
+) -> None:
     """
     Generates side-by-side gif of nwm and ngen forcing data
 
-    nwm_data  : 4d array (time x nwm_forcing_variable x west_east x south_north)
-    ngen_data : 3d array (time x ngen_forcing_variable x catchment)
-    t_ax      : list of datetimes for the time axis
-    catchment_ids : list of catchment ids
-    ngen_vars_plot : list of ngen variables to plot
-
+    Args:
+        nwm_data (np.ndarray) : 4d array (time x nwm_forcing_variable x west_east x south_north)
+        ngen_data (np.ndarray): 3d array (time x ngen_forcing_variable x catchment)
+        geopackage (str): path to geopackage containing the divides layer
+        t_ax (list | pd.Series): list of datetimes for the time axis
+        catchment_ids (list | np.ndarray): list of catchment ids
+        ngen_vars_plot (list | None): list of ngen variables to plot
+        output_dir (Path): directory to save the generated gifs. Defaults to "./GIFs".
     """
 
     if ngen_vars_plot is None:
@@ -93,9 +95,18 @@ def plot_ngen_forcings(
 
 def nc_to_3darray(
     forcings_nc: os.PathLike, requested_vars: list | None = None
-) -> Tuple[np.ndarray, list, np.ndarray]:
+) -> tuple[np.ndarray, list, np.ndarray]:
     """
-    forcings_nc : path to ngen forcings netcdf
+    Converts a netcdf of ngen forcings to a 3d array (time x ngen_forcing_variable x catchment).
+
+    Args:
+        forcings_nc (os.PathLike): path to ngen forcings netcdf
+        requested_vars (list | None, optional): List of variables to include. Defaults to all
+            variables.
+
+    Returns:
+        tuple[np.ndarray, list, np.ndarray]: 3d array of ngen forcings, time axis, and catchment
+            ids.
     """
     if requested_vars is None:
         requested_vars = ngen_variables
@@ -119,17 +130,27 @@ def nc_to_3darray(
 
 
 def csvs_to_3darray(
-    forcings_dir: os.PathLike, requested_vars: list | None = None,
-) -> Tuple[np.ndarray, pd.Series, list]:
+    forcings_dir: os.PathLike,
+    requested_vars: list | None = None,
+) -> tuple[np.ndarray, pd.Series, list]:
     """
-    forcings_dir : directory containing ngen forcings csvs
+    Converts a directory of ngen forcings csvs to a 3d array (time x ngen_forcing_variable x
+    catchment).
+
+    Args:
+        forcings_dir (os.PathLike): path to directory containing ngen forcings csvs
+        requested_vars (list | None, optional): List of variables to include. Defaults to all
+            variables.
+
+    Returns:
+        tuple[np.ndarray, pd.Series, list]: 3d array of ngen forcings, time axis, and catchment ids.
     """
     if requested_vars is None:
         requested_vars = ngen_variables
     catchment_ids = []
     i = 0
     t_ax = pd.Series()
-    for _, _, files in os.walk(forcings_dir): # type: ignore
+    for _, _, files in os.walk(forcings_dir):  # type: ignore
         for j, jfile in enumerate(files):
             if jfile[-3:] == "csv":
                 catchment_id = jfile.split(".")[0]
@@ -155,7 +176,9 @@ def csvs_to_3darray(
 
 
 def get_nwm_data_array(
-    nwm_folder: list, geopackage: gpd.GeoDataFrame, nwm_vars: list | np.ndarray | None = None
+    nwm_folder: list,
+    geopackage: gpd.GeoDataFrame,
+    nwm_vars: list | np.ndarray | None = None,
 ) -> np.ndarray:
     """
     Inputs a folder of national water model files and nwm variable names to extract.
@@ -163,14 +186,21 @@ def get_nwm_data_array(
     Outputs a windowed array of national water model data for the domain and forcing variables
     specified.
 
-    nwm_data  : 4d array (time x nwm_forcing_variable x west_east x south_north)
+    Args:
+        nwm_folder (list): list of paths to nwm forcing files
+        geopackage (gpd.GeoDataFrame): geopackage containing the divides layer
+        nwm_vars (list | np.ndarray | None, optional): List of nwm variables to extract. Defaults to
+            all NWM variables.
+
+    Returns:
+        np.ndarray: 4d array of nwm data (time x nwm_forcing_variable x west_east x south_north)
     """
     if nwm_vars is None:
         nwm_vars = nwm_variables
     weights_json, _ = hf2ds([geopackage], nwm_folder[0], 1)
     x_min, x_max, y_min, y_max = get_window(weights_json)
 
-    for path, _, files in os.walk(nwm_folder): # type: ignore
+    for path, _, files in os.walk(nwm_folder):  # type: ignore
         nwm_data = np.zeros(
             (len(files), len(nwm_vars), y_max - y_min + 1, x_max - x_min + 1),
             dtype=np.float32,
@@ -229,7 +259,9 @@ if __name__ == "__main__":
             if ngen_variables[x] in requested_ngen_variables
         ]
     )
-    nwm_data_to_plot = get_nwm_data_array(args.nwm_folder, args.geopackge, nwm_vars_to_plot)
+    nwm_data_to_plot = get_nwm_data_array(
+        args.nwm_folder, args.geopackge, nwm_vars_to_plot
+    )
 
     if args.ngen_forcings.endswith(".nc"):
         ngen_data_to_plot, t_ax_to_plot, catchment_ids_to_plot = nc_to_3darray(

@@ -5,16 +5,18 @@ import pandas as pd
 
 from forcingprocessor.utils import convert_url2key, ngen_variables, nwm_variables
 from forcingprocessor.writers import write_df
+from forcingprocessor.config import RunConfig, OutputLayout
+# from forcingprocessor.processor import Extracted, WriteResult, Geometry
 
 
-def summarize_sizes(
-    sizes: np.ndarray | None,
+def _summarize_sizes(
+    sizes: np.ndarray | list | None,
 ) -> tuple[float, float, np.ndarray | np.float32 | np.float64 | float]:
     """Given a list of file sizes, calculate the average, median, and standard deviation of the file
     sizes.
 
     Args:
-        sizes (np.ndarray | None): List of files for which to summarize sizes.
+        sizes (np.ndarray | list | None): List of files for which to summarize sizes.
 
     Returns:
         tuple[float, float, np.ndarray | np.float32 | np.float64 | float]: The average, median, and
@@ -26,7 +28,7 @@ def summarize_sizes(
     return np.average(sizes), np.median(sizes), np.std(sizes)
 
 
-def calculate_vpu_precip_stats(
+def _calculate_vpu_precip_stats(
     data_array: np.ndarray, catchment_ids: list, jcatchment_dict: dict
 ) -> pd.DataFrame:
     """
@@ -81,22 +83,32 @@ def calculate_vpu_precip_stats(
     return pd.DataFrame(rows)
 
 
-def build_metadata(cfg, runtime, extracted, written):
-    """
-    Summarize input and output file sizes for this run.
+def _build_metadata(
+    cfg: RunConfig, runtime: float, extracted, written
+) -> dict:
+    """Summarize input and output file sizes for this run.
+
+    Args:
+        cfg (RunConfig): The run configuration.
+        runtime (float): The runtime of the run.
+        extracted (Extracted): The extracted data.
+        written (WriteResult): The written data.
+
+    Returns:
+        dict: A dictionary containing the summarized metadata.
     """
     ii_dataframes = "csv" in cfg.output_file_type or "parquet" in cfg.output_file_type
-    nwm_avg, nwm_med, nwm_std = summarize_sizes(extracted.nwm_file_sizes_MB)
+    nwm_avg, nwm_med, nwm_std = _summarize_sizes(extracted.nwm_file_sizes_MB)
     cat_avg, cat_med, cat_std = (
-        summarize_sizes(written.cat_file_sizes_MB) if ii_dataframes else (0, 0, 0)
+        _summarize_sizes(written.cat_file_sizes_MB) if ii_dataframes else (0, 0, 0)
     )
     zip_avg, zip_med, zip_std = (
-        summarize_sizes(written.cat_file_sizes_zipped_MB)
+        _summarize_sizes(written.cat_file_sizes_zipped_MB)
         if ii_dataframes
         else (0, 0, 0)
     )
     nc_avg, nc_med, nc_std = (
-        summarize_sizes(written.netcdf_file_sizes_MB)
+        _summarize_sizes(written.netcdf_file_sizes_MB)
         if "netcdf" in cfg.output_file_type
         else (0, 0, 0)
     )
@@ -133,11 +145,20 @@ def build_metadata(cfg, runtime, extracted, written):
     }
 
 
-def build_stat_frames(cfg, data_array, ids):
+def _build_stat_frames(
+    cfg: RunConfig, data_array: np.ndarray, ids: list | None
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Per catchment averages and medians over the time axis.
+
+    Args:
+        cfg (RunConfig): forcingprocessor run configuration
+        data_array (np.ndarray): The data array for which to calculate statistics
+        ids (list | None): The list of catchment IDs
+
+    Returns:
+        tuple[pd.DataFrame, pd.DataFrame]: A tuple containing the average and median dataframes
     """
-    Per catchment averages and medians over the time axis.
-    """
-    if cfg.data_source == "forcings":
+    if cfg.data_source == "forcings" and data_array is not None:
         columns = ngen_variables
         id_column = "catchment id"
         avg = np.average(data_array, axis=0)
@@ -158,29 +179,56 @@ def build_stat_frames(cfg, data_array, ids):
     return avg_df, med_df
 
 
-def collect_metadata(cfg, layout, s3_client, geom, extracted, written, runtime):
-    """
-    Calculate and write run statistics next to the run outputs.
+def collect_metadata(
+    cfg: RunConfig,
+    layout: OutputLayout,
+    s3_client,
+    # geom: Geometry,
+    # extracted: Extracted,
+    # written: WriteResult,
+    geom,
+    extracted,
+    written,
+    runtime: float,
+):
+    """Calculate and write run statistics next to the run outputs.
+
+    Args:
+        cfg (RunConfig): forcingprocessor run configuration
+        layout (OutputLayout): output layout configuration
+        s3_client (boto3.S3.Client): S3 client for handling S3 operations
+        geom (Geometry): geometric information
+        extracted (Extracted): extracted data
+        written (WriteResult): written results
+        runtime (float): runtime in seconds
     """
     if cfg.ii_verbose:
         print("Data processing, now calculating metadata...", flush=True)
 
     if cfg.data_source == "forcings":
         ids = written.forcing_cat_ids
-    elif cfg.data_source == "channel_routing":
+    elif cfg.data_source == "channel_routing" and geom.nwm_ngen_map is not None:
         ids = list(geom.nwm_ngen_map.keys())
     else:
         ids = None
 
     metadata_df = pd.DataFrame.from_dict(
-        build_metadata(cfg, runtime, extracted, written)
+        _build_metadata(cfg, runtime, extracted, written)
     )
-    avg_df, med_df = build_stat_frames(cfg, extracted.data_array, ids)
+    if isinstance(extracted.data_array, np.ndarray) and ids is not None:
+        avg_df, med_df = _build_stat_frames(cfg, extracted.data_array, ids)
+    else:
+        avg_df, med_df = pd.DataFrame(), pd.DataFrame()
 
     frames = [(metadata_df, "metadata.csv")]
-    if cfg.data_source == "forcings":
+    if (
+        cfg.data_source == "forcings"
+        and isinstance(extracted.data_array, np.ndarray)
+        and geom.jcatchment_dict is not None
+        and geom.weights_df is not None
+    ):
         # Issue 9: write compact VPU-level precipitation statistics.
-        vpu_precip_df = calculate_vpu_precip_stats(
+        vpu_precip_df = _calculate_vpu_precip_stats(
             extracted.data_array, list(geom.weights_df.index), geom.jcatchment_dict
         )
         frames.insert(0, (vpu_precip_df, "metadata_by_vpu.csv"))
@@ -196,4 +244,4 @@ def collect_metadata(cfg, layout, s3_client, geom, extracted, written, runtime):
         kwargs = {"local_path": layout.metaf_path}
 
     for df, filename in frames:
-        write_df(df, filename, cfg.storage_type, "na", **kwargs)
+        write_df(df, filename, cfg.storage_type, "na", **kwargs)  # type: ignore

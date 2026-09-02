@@ -1,3 +1,5 @@
+"""Data processing and task distribution utility functions."""
+
 from datetime import datetime, timezone
 import json
 from contextlib import contextmanager
@@ -11,6 +13,7 @@ import s3fs
 import numpy as np
 import xarray as xr
 import netCDF4 as nc
+import pandas as pd
 
 
 B2MB = 1048576
@@ -64,12 +67,16 @@ vpus = [
 ]
 
 
-def get_window(weights_df):
+def get_window(weights_df: pd.DataFrame) -> tuple[int, int, int, int]:
     """
     Providing window on weights for which number of catchments is over 50,000
 
-    weights_df : datastream weights df where the indicies are catchment ids and the columns are
-        cell-id and coverage
+    Args:
+        weights_df (pd.DataFrame): datastream weights df where the indicies are catchment ids and
+            the columns are cell-id and coverage
+
+    Returns:
+        tuple[int, int, int, int]: x_min, x_max, y_min, y_max
     """
     nx = 4608
     ny = 3840
@@ -81,7 +88,7 @@ def get_window(weights_df):
         idx_2d = []
         for row in weights_df.itertuples():
             indices = row.cell_id
-            idx_2d = np.unravel_index(indices, (1, nx, ny), order="F")
+            idx_2d = np.unravel_index(indices, (1, nx, ny), order="F") # type: ignore
             x_min_list.append(np.min(idx_2d[1]))
             x_max_list.append(np.max(idx_2d[1]))
             y_min_list.append(np.min(idx_2d[2]))
@@ -129,7 +136,15 @@ def phase(label, profiler):
     profiler.log(f"{label}_END")
 
 
-def read_json(path):
+def read_json(path: str | Path) -> dict:
+    """Reads a json into a dict.
+
+    Args:
+        path (str | Path): Path to the JSON file
+
+    Returns:
+        dict: The contents of the JSON file
+    """
     if "s3://" in str(path):
         with s3fs.S3FileSystem(anon=True).open(path, "r") as f:
             return json.load(f)
@@ -137,7 +152,15 @@ def read_json(path):
         return json.load(f)
 
 
-def read_dataset(path):
+def read_dataset(path: str | Path) -> xr.Dataset:
+    """Reads a netCDF or zarr dataset into an xarray Dataset.
+
+    Args:
+        path (str | Path): Path to the netCDF or zarr file.
+
+    Returns:
+        xr.Dataset: The contents of the netCDF or zarr file
+    """
     if "s3://" in str(path):
         with s3fs.S3FileSystem(anon=True).open(path, "rb") as f:
             return xr.open_dataset(f).load()
@@ -155,12 +178,15 @@ def distribute_work(items, nprocs):
     return items_per_proc
 
 
-def load_balance(items_per_proc, ii_verbose=False):
+def load_balance(items_per_proc: list, ii_verbose: bool=False):
     """
     Drop the processes that were assigned no work.
 
-    items_per_proc : list of length number of processes with each element representing the number of
-        items the process has been assigned
+    Args:
+        items_per_proc (list): list of length number of processes with each element representing the
+            number of items the process has been assigned
+        ii_verbose (bool): If True, print information about the load balancing process. Defaults to
+            False.
     """
     nprocs = len(items_per_proc)
     ntasked = len(np.nonzero(items_per_proc)[0])
@@ -175,7 +201,12 @@ def load_balance(items_per_proc, ii_verbose=False):
     return items_per_proc
 
 
-def report_usage():
+def report_usage() -> tuple[float, float, float]:
+    """Prints out summary of resource usage.
+
+    Returns:
+        tuple[float, float, float]: RAM usage in GB, RAM usage in percent, CPU usage in percent
+    """
     usage_ram = psutil.virtual_memory()[3] / 1000000000
     percent_ram = psutil.virtual_memory()[2]
     percent_cpu = psutil.cpu_percent()
@@ -186,8 +217,19 @@ def report_usage():
     return usage_ram, percent_ram, percent_cpu
 
 
-def convert_url2key(nwm_file, fs_type):
+def convert_url2key(nwm_file: str | Path, fs_type: str | None) -> tuple[str | None, str]:
+    """Convert a NWM file URL to a bucket and key for cloud storage.
+
+    Args:
+        nwm_file (str | Path): Name of NWM file
+        fs_type (str | None): File system type, either "google" or "s3" or None.
+
+    Returns:
+        tuple[str | None, str]: The bucket name and the key for the file in cloud storage.
+    """
     bucket_key = ""
+    if isinstance(nwm_file, Path):
+        nwm_file = str(nwm_file)
     _nc_file_parts = nwm_file.split("/")
     layers = _nc_file_parts[3:]
     for jlay in layers:
@@ -212,10 +254,10 @@ def make_forcing_netcdf(
     Create a netcdf file with the forcing data.
 
     Parameters:
-    out_path (str): Path to save the netcdf file.
-    catchments (np.ndarray): Array of catchment IDs.
-    t_ax (np.ndarray): Time axis array with shape (nt,).
-    input_array (np.ndarray): Forcing data array with shape (ncat, nt, forcing variables).
+        out_path (str | Path): Path to save the netcdf file.
+        catchments (np.ndarray): Array of catchment IDs.
+        t_ax (np.ndarray): Time axis array with shape (nt,).
+        input_array (np.ndarray): Forcing data array with shape (ncat, nt, forcing variables).
     """
 
     with nc.Dataset(out_path, "w", format="NETCDF4") as ds: # pylint: disable=no-member
@@ -233,7 +275,7 @@ def make_forcing_netcdf(
             var[:] = input_array[:, :, i]
 
 
-def normalize_vpu_id(value):
+def normalize_vpu_id(value: str) -> str:
     """
     Normalize a VPU identifier to the standard VPU_XX format.
 
@@ -241,6 +283,12 @@ def normalize_vpu_id(value):
         03W -> VPU_03W
         vpu_03w -> VPU_03W
         nextgen_VPU_03W.gpkg -> VPU_03W
+
+    Args:
+        value (str): The VPU identifier to normalize.
+
+    Returns:
+        str: The normalized VPU identifier in the format VPU_XX.
     """
     name = Path(str(value)).stem
 

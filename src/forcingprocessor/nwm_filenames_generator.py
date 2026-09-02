@@ -1,10 +1,17 @@
+"""Reads a json configuration file and runs nwmurl to generate NWM forcing file names."""
+
 import json
 import os
 import argparse
 import nwmurl
 
 
-def generate_nwmfiles(conf):
+def generate_nwmfiles(conf: dict) -> None:
+    """Run nwmurl based on the configuration file.
+
+    Args:
+        conf (dict): Contents of a json nwmurl configuration file.
+    """
     forcing_type = conf.get("forcing_type", None)
 
     if forcing_type == "operational_archive":

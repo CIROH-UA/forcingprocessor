@@ -7,13 +7,13 @@ from io import BytesIO
 import time
 from datetime import datetime
 from pathlib import Path
+import tempfile
 import gcsfs
 import requests
 import xarray as xr
 import numpy as np
 import pandas as pd
 import boto3
-import tempfile
 from forcingprocessor.utils import convert_url2key, report_usage
 
 B2MB = 1048576

@@ -1,3 +1,5 @@
+"""Tools to subset CONUS hydrofabric into VPUs and create weights for each VPU."""
+
 import os
 import re
 import copy
@@ -11,7 +13,14 @@ import geopandas as gpd
 from forcingprocessor.weights_hf2ds import calc_weights_from_gdf
 
 
-def multi_subset_conus2vpus(conus: str, raster_file: str, output_dir: str):
+def multi_subset_conus2vpus(conus: str, raster_file: str, output_dir: str) -> None:
+    """Parallelize the subsetting of a conus hydrofabric into vpus and creating weights
+
+    Args:
+        conus (str): Path to CONUS hydrofabric geopackage
+        raster_file (str): Filename of a forcing file with geometry information
+        output_dir (str): Output directory of the vpu subsetting and weights files
+    """
     VPUs = [
         "01",
         "02",
@@ -66,7 +75,14 @@ def multi_subset_conus2vpus(conus: str, raster_file: str, output_dir: str):
 def subset_conus2vpus(
     conus: str, raster_file: str, output_dir: str, VPUs: list
 ) -> None:
-    # Given a conus hydrofabric, subset into vpu and create weights
+    """Given a CONUS hydrofabric, subset into VPU and create weights.
+
+    Args:
+        conus (str): Path to CONUS hydrofabric geopackage
+        raster_file (str): Path to example NWM CONUS forcing file
+        output_dir (str): Output directory of the vpu subsetting and weights files
+        VPUs (list): List of VPU IDs to subset
+    """
 
     pattern_vpu = r"\$VPU"
 
@@ -153,7 +169,7 @@ def subset_conus2vpus(
                     ii_do_weights = False
                     if ii_do_weights:
                         print(f"Weights calc for VPU {jvpu}")
-                        weights_json = calc_weights_from_gdf(divides_df, raster_file)
+                        weights_json = calc_weights_from_gdf(divides_df, raster_file, 1)
                         jfile_weights_template = os.path.join(
                             output_dir, "nextgen_VPU_$VPU_weights.json"
                         )
