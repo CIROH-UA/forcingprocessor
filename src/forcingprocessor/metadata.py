@@ -12,16 +12,6 @@ from forcingprocessor.config import RunConfig, OutputLayout
 def _summarize_sizes(
     sizes: np.ndarray | list | None,
 ) -> tuple[float, float, np.ndarray | np.float32 | np.float64 | float]:
-    """Given a list of file sizes, calculate the average, median, and standard deviation of the file
-    sizes.
-
-    Args:
-        sizes (np.ndarray | list | None): List of files for which to summarize sizes.
-
-    Returns:
-        tuple[float, float, np.ndarray | np.float32 | np.float64 | float]: The average, median, and
-            standard deviation of the sizes.
-    """
     if sizes is None or len(sizes) == 0:
         return 0, 0, 0
     sizes = np.fromiter(sizes, dtype=float)
@@ -86,17 +76,7 @@ def _calculate_vpu_precip_stats(
 def _build_metadata(
     cfg: RunConfig, runtime: float, extracted, written
 ) -> dict:
-    """Summarize input and output file sizes for this run.
-
-    Args:
-        cfg (RunConfig): The run configuration.
-        runtime (float): The runtime of the run.
-        extracted (Extracted): The extracted data.
-        written (WriteResult): The written data.
-
-    Returns:
-        dict: A dictionary containing the summarized metadata.
-    """
+    """Summarize input and output file sizes for this run."""
     ii_dataframes = "csv" in cfg.output_file_type or "parquet" in cfg.output_file_type
     nwm_avg, nwm_med, nwm_std = _summarize_sizes(extracted.nwm_file_sizes_MB)
     cat_avg, cat_med, cat_std = (
@@ -148,16 +128,7 @@ def _build_metadata(
 def _build_stat_frames(
     cfg: RunConfig, data_array: np.ndarray, ids: list | None
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Per catchment averages and medians over the time axis.
-
-    Args:
-        cfg (RunConfig): forcingprocessor run configuration
-        data_array (np.ndarray): The data array for which to calculate statistics
-        ids (list | None): The list of catchment IDs
-
-    Returns:
-        tuple[pd.DataFrame, pd.DataFrame]: A tuple containing the average and median dataframes
-    """
+    """Per catchment averages and medians over the time axis."""
     if cfg.data_source == "forcings" and data_array is not None:
         columns = ngen_variables
         id_column = "catchment id"

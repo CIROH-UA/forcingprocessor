@@ -130,6 +130,8 @@ def _write_data_df(
         bucket, key_prefix = convert_url2key(out_path, storage_type)
 
     t00 = time.perf_counter()
+    file_size_MB = 0
+    file_zipped_size_MB = 0
     for j, jcatch in enumerate(catchments):
         t0 = time.perf_counter()
         if data_source_arg == "forcings":
@@ -185,9 +187,6 @@ def _write_data_df(
             df.to_csv(buf, index=False)
             buf.seek(0)
             tar_buffs.append(buf)
-
-        file_size_MB = 0
-        file_zipped_size_MB = 0
 
         if j == 0:
             if not os.path.exists(filename):

@@ -25,15 +25,6 @@ gpd.options.io_engine = "pyogrio"
 def _rastersourceNexactextract(
     raster_data: xr.Dataset, geo_data: gpd.GeoDataFrame
 ) -> pd.DataFrame | gpd.GeoDataFrame | list | None:
-    """Calculate weights for a geodataframe using a raster dataset.
-
-    Args:
-        raster_data (xr.Dataset): NWM forcing raster dataset.
-        geo_data (gpd.GeoDataFrame): GeoDataFrame containing the catchment geometries.
-
-    Returns:
-        pd.DataFrame | gpd.GeoDataFrame | list | None: DataFrame containing the calculated weights.
-    """
     ncatch_proc = len(geo_data)
 
     print(f"Finding weights for geodataframe of size {ncatch_proc}", flush=True)
@@ -71,18 +62,6 @@ def _rastersourceNexactextract(
 
 
 def _get_projection(raster_filepath: str) -> Tuple[str, xr.Dataset]:
-    """Get the projection of a raster file.
-
-    Args:
-        raster_filepath (str): URL or path to a raster file.
-
-    Raises:
-        Exception: Raised if the projection cannot be obtained from the raster file or the backup
-            file.
-
-    Returns:
-        Tuple[str, xr.Dataset]: The projection string and the opened raster dataset.
-    """
     if "https://" in raster_filepath:
         print("Downloading file...")
         response = requests.get(raster_filepath, timeout=10)

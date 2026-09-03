@@ -102,11 +102,6 @@ class WriteResult:
 def _pool_filesystem(fs_type: str | None) -> s3fs.S3FileSystem | str | None:
     """Filesystem handed to the extraction pool. Google is deferred to the workers
     because a GCSFileSystem does not survive the trip to a subprocess.
-
-    Args:
-        fs_type (str): String describing filesystem type
-    Returns:
-        s3fs.S3FileSystem | str | None: S3FileSystem for S3, "google" for GCS, None for local.
     """
     if fs_type == "s3":
         return s3fs.S3FileSystem(anon=True, client_kwargs={"region_name": "us-east-1"})
@@ -453,6 +448,7 @@ def _forcing_grid2catchment(
 
 
 def _load_geometry(cfg: RunConfig, profiler: Profiler) -> Geometry:
+    """Read the catchment weights, nexus map, or restart mappings this run extracts against."""
     if cfg.data_source == "forcings":
         with phase("READWEIGHTS", profiler):
             if cfg.ii_verbose:
@@ -491,19 +487,6 @@ def _load_geometry(cfg: RunConfig, profiler: Profiler) -> Geometry:
 
 
 def _extract_restart(cfg: RunConfig, geom: Geometry) -> Extracted:
-    """Create a t-route restart file from NWM analysis/assimilation channel routing data.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-        profiler (Profiler): This run's profiling log and timings.
-
-    Raises:
-        RuntimeError: Raised when a request to the HTTP NWM file link returns an error status code.
-        TypeError: Raised when geom is not configured properly
-
-    Returns:
-        Extracted: Restart data extracted from the NWM files, ordered in time.
-    """
     nwm_file = cfg.nwm_forcing_files[0]
     nwm_file_sizes_MB = []
     if cfg.fs_type == "google":
@@ -551,21 +534,7 @@ def _extract_restart(cfg: RunConfig, geom: Geometry) -> Extracted:
 def _extract(
     cfg: RunConfig, geom: Geometry, nwm_meta: NWMFileMetadata, profiler: Profiler
 ) -> Extracted:
-    """Pull the requested data out of the NWM files, ordered so time moves forward.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-        geom (Geometry): Catchment geometries and ID mappings for this run.
-        nwm_meta (NWMFileMetadata): Information pulled from source data URL, like forecast cycle and
-            times of coverage.
-        profiler (Profiler): This run's profiling log and timings.
-
-    Raises:
-        TypeError: Raised when cfg or geom are not configured properly.
-
-    Returns:
-        Extracted: Data extracted from the NWM files, ordered in time.
-    """
+    """Pull the requested data out of the NWM files, ordered so time moves forward."""
     with phase("PROCESSING", profiler):
         if cfg.ii_verbose:
             print("Entering data extraction...\n", flush=True)
@@ -627,22 +596,6 @@ def _write_netcdf_outputs(
     nwm_meta: NWMFileMetadata,
     extracted: Extracted,
 ) -> list[float]:
-    """Write output data in a netcdf format locally or in the cloud.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-        layout (OutputLayout): Information on location where files should be written.
-        geom (Geometry): Catchment geometries and ID mappings for this run.
-        nwm_meta (NWMFileMetadata): Information pulled from source data URL, like forecast cycle and
-            times of coverage.
-        extracted (Extracted): Data extracted from the NWM files, ordered in time.
-
-    Raises:
-        TypeError: Raised if an incorrect data type is passed to the writer function.
-
-    Returns:
-        list[float]: List of netCDF file sizes in MB.
-    """
     if cfg.data_source == "forcings":
         return multiprocess_write_netcdf(
             cfg,
@@ -690,23 +643,7 @@ def _write_outputs(
     extracted: Extracted,
     profiler: Profiler,
 ) -> WriteResult:
-    """Write the extracted data out in every requested file type.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-        layout (OutputLayout): Information on location where files should be written.
-        geom (Geometry): Catchment geometries and ID mappings for this run.
-        nwm_meta (NWMFileMetadata): Information pulled from source data URL, like forecast cycle and
-            times of coverage.
-        extracted (Extracted): Data extracted from the NWM files, ordered in time.
-        profiler (Profiler): This run's profiling log and timings..
-
-    Raises:
-        TypeError: Raised when geom is not configured properly
-
-    Returns:
-        WriteResult: Identifiers and file sizes reported back by the write processes.
-    """
+    """Write the extracted data out in every requested file type."""
     written = WriteResult()
     with phase("FILEWRITING", profiler):
         if "netcdf" in cfg.output_file_type:
@@ -771,17 +708,6 @@ def _plot_outputs(
     extracted: Extracted,
     forcing_cat_ids: list[str],
 ) -> None:
-    """Generate side-by-side GIF comparing NWM and NGEN forcing data.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-        layout (OutputLayout): Information on location where files should be written.
-        extracted (Extracted): Data extracted from the NWM files, ordered in time.
-        forcing_cat_ids (list[str]): List of cat-IDs to be plotted.
-
-    Raises:
-        TypeError: Raised when extracted is not configured properly.
-    """
     if cfg.gpkg_files[0].endswith(".parquet"):
         print("Plotting currently not implemented for parquet, need geopackage")
         return
@@ -828,38 +754,26 @@ def _plot_outputs(
         )
 
 
-def _print_summary(cfg: RunConfig, layout: OutputLayout, timings: dict) -> None:
-    """Print a summary of the run and its timings to the console.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-        layout (OutputLayout): Information on location where files should be written.
-        timings (dict): Each step that was executed and the amount of time that was taken.
-    """
+def _print_summary(layout: OutputLayout, timings: dict, t_start: float) -> None:
     print("\n\n--------SUMMARY-------")
     msg = f"\nData has been written to {layout.output_path}"
-    if cfg.data_source == "forcings":
+    if "READWEIGHTS" in timings and "CALC_WINDOW" in timings:
         msg += (
             f"\nCalc weights  : {timings['READWEIGHTS'] + timings['CALC_WINDOW']:.2f}s"
         )
     msg += f"\nProcess data  : {timings['PROCESSING']:.2f}s"
     msg += f"\nWrite data    : {timings['FILEWRITING']:.2f}s"
-    if cfg.ii_collect_stats:
+    if "COLLECT_STATS" in timings:
         msg += f"\nCollect stats : {timings['COLLECT_STATS']:.2f}s"
-    if "tar" in cfg.output_file_type:
+    if "TAR" in timings:
         msg += f"\nWrite tar     : {timings['TAR']:.2f}s"
 
-    runtime = sum(timings.values())
+    runtime = time.perf_counter() - t_start
     msg += f"\nRuntime       : {runtime:.2f}s\n"
     print(msg)
 
 
 def _fp_animation_and_filenames(cfg: RunConfig) -> None:
-    """Prints a startup animation and all NWM files to be processed to the console.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-    """
     msg = "\nForcingProcessor has awoken. Let's do this."
     for x in msg:
         print(x, end="")
@@ -872,19 +786,6 @@ def _fp_animation_and_filenames(cfg: RunConfig) -> None:
 
 
 def _tar_chunks(cfg: RunConfig, geom: Geometry) -> dict[int, list[str]] | None:
-    """Calculates catchment chunks for writing tar files.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information.
-        geom (Geometry):Catchment geometries and ID mappings for this run.
-
-    Raises:
-        TypeError: Raised when geom.nwm_ngen_map is not set (is None).
-
-    Returns:
-        dict[int, list[str]] | None: Dictionary where every entry's values is a list of the
-            catchments in a specific chunk.
-    """
     if cfg.data_source == "channel_routing":
         if geom.nwm_ngen_map is not None:
             chunks = {1: list(geom.nwm_ngen_map.keys())}
@@ -931,10 +832,10 @@ def prep_ngen_data(conf: dict) -> None:
     core_runtime = time.perf_counter() - t_start
 
     if cfg.ii_plot:
-        if written.forcing_cat_ids is not None:
+        if cfg.data_source == "forcings" and written.forcing_cat_ids is not None:
             _plot_outputs(cfg, layout, extracted, written.forcing_cat_ids)
         else:
-            raise TypeError("written.forcing_cat_ids must not be None")
+            raise TypeError("Plotting only supported for forcings")
 
     if cfg.ii_collect_stats:
         with phase("COLLECT_STATS", profiler):
@@ -963,7 +864,7 @@ def prep_ngen_data(conf: dict) -> None:
                 )
 
     if cfg.ii_verbose:
-        _print_summary(cfg, layout, profiler.timings)
+        _print_summary(layout, profiler.timings, t_start)
     profiler.log("FORCINGPROCESSOR_END")
 
     if cfg.storage_type == "s3":
