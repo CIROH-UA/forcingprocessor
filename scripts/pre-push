@@ -1,8 +1,4 @@
 #!/usr/bin/env bash
-# Runs the fast (no-network, no-credentials) test suite before every push.
-# Installed via `make install-hooks`. To skip once, use: git push --no-verify
-
 set -e
-
 echo "Running fast test suite before push (pytest -m 'not network and not aws_creds')..."
 pytest -m "not network and not aws_creds"
