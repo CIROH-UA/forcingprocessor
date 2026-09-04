@@ -196,7 +196,7 @@ def clean_dir(autouse=True):
     if os.path.exists(forcings_dir):
         os.system(f"rm -rf {str(forcings_dir)}")
 
-
+@pytest.mark.network
 def test_nomads_prod():
     nwmurl_conf["start_date"] = TODAY_START
     nwmurl_conf["end_date"] = TODAY_START
@@ -211,7 +211,7 @@ def test_nomads_prod():
     assert assert_file.exists()
     os.remove(assert_file)
 
-
+@pytest.mark.network
 def test_nwm_google_apis():
     nwmurl_conf["start_date"] = TODAY_START
     nwmurl_conf["end_date"] = TODAY_START
@@ -224,7 +224,7 @@ def test_nwm_google_apis():
     assert assert_file.exists()
     os.remove(assert_file)
 
-
+@pytest.mark.network
 def test_google_cloud_storage():
     nwmurl_conf["start_date"] = "202407100100"
     nwmurl_conf["end_date"] = "202407100100"
@@ -235,7 +235,7 @@ def test_google_cloud_storage():
     assert assert_file.exists()
     os.remove(assert_file)
 
-
+@pytest.mark.network
 def test_gs():
     nwmurl_conf["start_date"] = TODAY_START
     nwmurl_conf["end_date"] = TODAY_START
@@ -248,7 +248,7 @@ def test_gs():
     assert assert_file.exists()
     os.remove(assert_file)
 
-
+@pytest.mark.network
 def test_gcs():
     nwmurl_conf["start_date"] = "202407100100"
     nwmurl_conf["end_date"] = "202407100100"
@@ -259,7 +259,7 @@ def test_gcs():
     assert assert_file.exists()
     os.remove(assert_file)
 
-
+@pytest.mark.network
 def test_noaa_nwm_pds_https():
     nwmurl_conf["start_date"] = TODAY_START
     nwmurl_conf["end_date"] = TODAY_START
@@ -272,7 +272,7 @@ def test_noaa_nwm_pds_https():
     assert assert_file.exists()
     os.remove(assert_file)
 
-
+@pytest.mark.network
 def test_noaa_nwm_pds_s3():
     nwmurl_conf["start_date"] = TODAY_START
     nwmurl_conf["end_date"] = TODAY_START
@@ -285,7 +285,7 @@ def test_noaa_nwm_pds_s3():
     assert assert_file.exists()
     os.remove(assert_file)
 
-
+@pytest.mark.aws_creds
 def test_s3_output():
     test_bucket = "ciroh-community-ngen-datastream"
     conf["storage"]["output_path"] = (
@@ -296,7 +296,7 @@ def test_s3_output():
     prep_ngen_data(conf)
     conf["storage"]["output_path"] = str(data_dir)
 
-
+@pytest.mark.network
 def test_netcdf_output_type():
     generate_nwmfiles(nwmurl_conf)
     conf["storage"]["output_file_type"] = ["netcdf"]

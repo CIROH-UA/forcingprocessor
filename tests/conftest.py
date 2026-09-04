@@ -15,6 +15,57 @@ local_weight_files = [
     str((data_dir / f"nextgen_VPU_{x}_weights.json").resolve()) for x in vpus
 ]
 
+# Fixtures that hit the network (public URLs, no credentials needed)
+NETWORK_FIXTURES = {"download_gpkg", "download_weight_file", "download_weights"}
+# Fixtures that require AWS credentials (read/write a private S3 bucket)
+AWS_CREDS_FIXTURES = {"clean_s3_test", "clean_s3_nrds_test"}
+
+
+def pytest_addoption(parser):
+    parser.addoption(
+        "--no-skip-creds",
+        action="store_true",
+        default=False,
+        help="Do not auto-skip aws_creds tests even if credentials look absent.",
+    )
+
+
+def _has_aws_creds():
+    if os.environ.get("AWS_ACCESS_KEY_ID") and os.environ.get("AWS_SECRET_ACCESS_KEY"):
+        return True
+    if os.path.exists(os.path.expanduser("~/.aws/credentials")):
+        return True
+    return bool(os.environ.get("AWS_PROFILE") or os.environ.get("AWS_SESSION_TOKEN"))
+
+
+def pytest_collection_modifyitems(config, items):
+    """
+    Auto-apply the `network` and `aws_creds` markers to any test that
+    requests one of the fixtures above, so contributors don't have to
+    remember to hand-tag every new test that happens to use them.
+    Tests that hit the network without going through a fixture still
+    need an explicit @pytest.mark.network decorator.
+
+    Also auto-skips `aws_creds` tests when no AWS credentials are
+    detected in the environment, unless --no-skip-creds is passed.
+    """
+    creds_present = _has_aws_creds()
+    skip_creds = pytest.mark.skip(reason="AWS credentials not available")
+
+    for item in items:
+        fixtures_used = set(getattr(item, "fixturenames", []))
+        if fixtures_used & NETWORK_FIXTURES:
+            item.add_marker(pytest.mark.network)
+        if fixtures_used & AWS_CREDS_FIXTURES:
+            item.add_marker(pytest.mark.aws_creds)
+
+        if (
+            "aws_creds" in item.keywords
+            and not creds_present
+            and not config.getoption("--no-skip-creds")
+        ):
+            item.add_marker(skip_creds)
+            
 
 @pytest.fixture(scope="session")
 def clean_s3_nrds_test():
