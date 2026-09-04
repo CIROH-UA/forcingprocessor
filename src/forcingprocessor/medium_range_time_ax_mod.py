@@ -8,8 +8,9 @@ https://github.com/CIROH-UA/ngen-datastream/issues/202
 
 import re
 from pathlib import Path
-import xarray as xr
+
 import numpy as np
+import xarray as xr
 
 from forcingprocessor.utils import make_forcing_netcdf
 

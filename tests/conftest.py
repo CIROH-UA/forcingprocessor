@@ -1,5 +1,9 @@
-import pytest, os, shutil
+import os
+import shutil
 from pathlib import Path
+
+import pytest
+
 from forcingprocessor.utils import vpus
 
 test_dir = Path(__file__).parent

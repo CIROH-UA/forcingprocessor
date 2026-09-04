@@ -3,9 +3,10 @@
 import numpy as np
 import pandas as pd
 
+from forcingprocessor.config import OutputLayout, RunConfig
 from forcingprocessor.utils import convert_url2key, ngen_variables, nwm_variables
 from forcingprocessor.writers import write_df
-from forcingprocessor.config import RunConfig, OutputLayout
+
 # from forcingprocessor.processor import Extracted, WriteResult, Geometry
 
 
@@ -73,9 +74,7 @@ def _calculate_vpu_precip_stats(
     return pd.DataFrame(rows)
 
 
-def _build_metadata(
-    cfg: RunConfig, runtime: float, extracted, written
-) -> dict:
+def _build_metadata(cfg: RunConfig, runtime: float, extracted, written) -> dict:
     """Summarize input and output file sizes for this run."""
     ii_dataframes = "csv" in cfg.output_file_type or "parquet" in cfg.output_file_type
     nwm_avg, nwm_med, nwm_std = _summarize_sizes(extracted.nwm_file_sizes_MB)

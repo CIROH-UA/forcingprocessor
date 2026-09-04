@@ -1,18 +1,19 @@
 import os
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime
-from datetime import datetime
-from forcingprocessor.processor import prep_ngen_data
-from forcingprocessor.plot_forcings import (
-    nc_to_3darray,
-    plot_ngen_forcings,
-    csvs_to_3darray,
-    get_nwm_data_array,
-)
-from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
+
 import requests
 
-date = datetime.now()
+from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
+from forcingprocessor.plot_forcings import (
+    csvs_to_3darray,
+    get_nwm_data_array,
+    nc_to_3darray,
+    plot_ngen_forcings,
+)
+from forcingprocessor.processor import prep_ngen_data
+
+date = datetime.now(tz=UTC)
 date = date.strftime("%Y%m%d")
 hourminute = "0000"
 test_dir = Path(__file__).parent
@@ -84,7 +85,7 @@ def test_forcings_plot(download_gpkg):
                 file.write(response.content)
             print("File downloaded successfully")
         else:
-            raise Exception(f"Failed to download file")
+            raise ConnectionError("Failed to download file")
 
     nwm_data = get_nwm_data_array(nwm_dir, geopackage)
 
@@ -104,7 +105,7 @@ def test_forcings_plot(download_gpkg):
     )
 
     os.remove(forcings_nc)
-    os.system(f"rm -rf {str(DATA_DIR)}forcings/*.parquet")
+    os.system(f"rm -rf {DATA_DIR!s}forcings/*.parquet")
     ngen_data, t_ax, catchment_ids = csvs_to_3darray(os.path.join(DATA_DIR, "forcings"))
     plot_ngen_forcings(
         nwm_data,

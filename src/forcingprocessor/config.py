@@ -5,7 +5,7 @@ import os
 import re
 import shutil
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
 
@@ -121,17 +121,17 @@ def read_config(conf: dict) -> RunConfig:
 
     nwm_file = forcing.get("nwm_file", "")
     with open(nwm_file, "r", encoding="utf-8") as fp:
-        nwm_forcing_files = [jline.strip() for jline in fp.readlines()]
+        nwm_forcing_files = [jline.strip() for jline in fp]
 
     output_path = conf["storage"].get("output_path", "")
     output_file_type = conf["storage"].get("output_file_type", ["csv"])
     for jtype in output_file_type:
-        assert (
-            jtype in FILE_TYPES
-        ), f"{jtype} for output_file_type is not accepted! Accepted: {FILE_TYPES}"
-    assert not (
-        "parquet" in output_file_type and "csv" in output_file_type
-    ), "Both parquet and csv cannot be simultaneously specified in output_file_type, pick one."
+        assert jtype in FILE_TYPES, (
+            f"{jtype} for output_file_type is not accepted! Accepted: {FILE_TYPES}"
+        )
+    assert not ("parquet" in output_file_type and "csv" in output_file_type), (
+        "Both parquet and csv cannot be simultaneously specified in output_file_type, pick one."
+    )
 
     if "s3://" in output_path:
         storage_type = "s3"
@@ -218,7 +218,7 @@ def build_output_layout(cfg: RunConfig) -> OutputLayout:
         )
 
     if output_path == "":
-        datentime = datetime.now(timezone.utc).strftime("%m%d%y_%H%M%S")
+        datentime = datetime.now(UTC).strftime("%m%d%y_%H%M%S")
         output_path = os.path.join(os.getcwd(), datentime)
     output_path = Path(output_path)
     layout = OutputLayout(
@@ -277,7 +277,7 @@ def write_run_manifest(
         weights_df.to_parquet(buf, index=False)
         buf.seek(0)
         s3.put_object(Bucket=bucket, Key=f"{key}/weights.parquet", Body=buf.getvalue())
-    return s3 # type: ignore
+    return s3  # type: ignore
 
 
 def parse_nwm_filenames(cfg: RunConfig) -> NWMFileMetadata:

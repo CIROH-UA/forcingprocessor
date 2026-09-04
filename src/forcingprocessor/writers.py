@@ -8,7 +8,7 @@ import re
 import tarfile
 import tempfile
 import time
-from datetime import datetime
+from datetime import UTC, datetime
 from io import BytesIO, TextIOWrapper
 from pathlib import Path
 
@@ -32,7 +32,7 @@ def write_df(
     filename: str,
     storage_type: str,
     data_source_arg: str,
-    client: boto3.client = None, # type: ignore
+    client: boto3.client = None,  # type: ignore
     bucket: str = "",
     key_prefix: str = "",
     local_path: str | Path = "",
@@ -115,7 +115,7 @@ def _write_data_df(
         file_zipped_size_MB: List containing the size of each zipped file in MB
         tar_buffs: List of BytesIO buffer objects of data. This is precalculated for performance.
     """
-    s3_client = boto3.session.Session().client("s3") # type: ignore
+    s3_client = boto3.session.Session().client("s3")  # type: ignore
     nfiles = len(catchments)
     pid = os.getpid()
     forcing_cat_ids = []
@@ -207,21 +207,20 @@ def _write_data_df(
             file_zipped_size_MB = os.path.getsize(filename_zip) / B2MB
             os.remove(filename_zip)
 
-        if ii_print and ii_verbose:
-            if (j + 1) % write_int == 0 or j == nfiles - 1:
-                t_accum = time.perf_counter() - t00
-                rate = (j + 1) * ntasked / t_accum
-                bytes2bits = 8
-                bandwidth_Mbps = rate * file_size_MB * ntasked * bytes2bits
-                estimate_total_time = nfiles * ntasked / rate
-                report_usage()
-                msg = f"\n{(j + 1) * ntasked} dataframes converted out of {nfiles * ntasked}\n"
-                msg += f"rate             {rate:.2f} files/s\n"
-                msg += f"df conversion    {t_df:.2f}s\n"
-                msg += f"estimated total write time {estimate_total_time:.2f}s\n"
-                msg += f"progress                   {(j + 1) / nfiles * 100:.2f}%\n"
-                msg += f"Bandwidth (all processes)   {bandwidth_Mbps:.2f} Mbps"
-                print(msg, flush=True)
+        if ii_print and ii_verbose and ((j + 1) % write_int == 0 or j == nfiles - 1):
+            t_accum = time.perf_counter() - t00
+            rate = (j + 1) * ntasked / t_accum
+            bytes2bits = 8
+            bandwidth_Mbps = rate * file_size_MB * ntasked * bytes2bits
+            estimate_total_time = nfiles * ntasked / rate
+            report_usage()
+            msg = f"\n{(j + 1) * ntasked} dataframes converted out of {nfiles * ntasked}\n"
+            msg += f"rate             {rate:.2f} files/s\n"
+            msg += f"df conversion    {t_df:.2f}s\n"
+            msg += f"estimated total write time {estimate_total_time:.2f}s\n"
+            msg += f"progress                   {(j + 1) / nfiles * 100:.2f}%\n"
+            msg += f"Bandwidth (all processes)   {bandwidth_Mbps:.2f} Mbps"
+            print(msg, flush=True)
 
     return forcing_cat_ids, filenames, [file_size_MB], [file_zipped_size_MB], tar_buffs
 
@@ -436,14 +435,19 @@ def _write_netcdf(
         None
     """
     if storage_type == "s3":
-        s3_client = boto3.session.Session().client("s3") # type: ignore
+        s3_client = boto3.session.Session().client("s3")  # type: ignore
         nc_filename = prefix + "/" + filename
     else:
         nc_filename = Path(prefix, filename)
 
     data = np.transpose(data, (2, 0, 1))
     t_utc = np.array(
-        [datetime.timestamp(datetime.strptime(jt, "%Y-%m-%d %H:%M:%S")) for jt in t_ax],
+        [
+            datetime.timestamp(
+                datetime.strptime(jt, "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC)
+            )
+            for jt in t_ax
+        ],
         dtype=np.float64,
     )
     catchments_arr = np.array(catchments, dtype="str")
@@ -492,23 +496,34 @@ def multiprocess_write_netcdf(cfg, forcing_path, nwm_meta, data, jcatchment_dict
             filenames.append(f"{jvpu}_forcings.nc")
         else:
             filenames.append(
-                f"ngen.{nwm_meta.fcst_cycle}z.{nwm_meta.urlbase}.forcing.{nwm_meta.lead_start}_" +
-                f"{nwm_meta.lead_end}.{jvpu}.nc"
+                f"ngen.{nwm_meta.fcst_cycle}z.{nwm_meta.urlbase}.forcing.{nwm_meta.lead_start}_"
+                + f"{nwm_meta.lead_end}.{jvpu}.nc"
             )
         i = k
 
     njobs = len(jcatchment_dict)
     netcdf_cat_file_sizes = []
     with cf.ProcessPoolExecutor(max_workers=min(njobs, cfg.nprocs)) as pool:
-        for results in pool.map(
-            _write_netcdf,
-            data_list,
-            [t_ax for x in range(njobs)],
-            catchments_list,
-            [forcing_path for x in range(njobs)],
-            filenames,
-            [cfg.storage_type for x in range(njobs)],
-        ):
-            netcdf_cat_file_sizes.append(results)
+        # for results in pool.map(
+        #     _write_netcdf,
+        #     data_list,
+        #     [t_ax for x in range(njobs)],
+        #     catchments_list,
+        #     [forcing_path for x in range(njobs)],
+        #     filenames,
+        #     [cfg.storage_type for x in range(njobs)],
+        # ):
+        #     netcdf_cat_file_sizes.append(results)
+        netcdf_cat_file_sizes = list(
+            pool.map(
+                _write_netcdf,
+                data_list,
+                [t_ax for x in range(njobs)],
+                catchments_list,
+                [forcing_path for x in range(njobs)],
+                filenames,
+                [cfg.storage_type for x in range(njobs)],
+            )
+        )
 
     return netcdf_cat_file_sizes

@@ -1,6 +1,7 @@
-from forcingprocessor.medium_range_time_ax_mod import cut_forcing_data_for_ensemble
-import xarray as xr
 import numpy as np
+import xarray as xr
+
+from forcingprocessor.medium_range_time_ax_mod import cut_forcing_data_for_ensemble
 
 # Member 2, cutting data from time axis index 6 to 210
 # Member 3, cutting data from time axis index 12 to 216

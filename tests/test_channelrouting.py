@@ -2,19 +2,21 @@
 
 import copy
 import os
-from pathlib import Path
-from datetime import datetime, timedelta, timezone
 import re
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+
 import pytest
-from forcingprocessor.processor import prep_ngen_data
+
 from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
+from forcingprocessor.processor import prep_ngen_data
 
 HF_VERSION = "v2.2"
-date = datetime.now(timezone.utc)
+date = datetime.now(UTC)
 date = date.strftime("%Y%m%d")
 HOURMINUTE = "0000"
 TODAY_START = date + HOURMINUTE
-yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
+yesterday = datetime.now(UTC) - timedelta(hours=24)
 yesterday = yesterday.strftime("%Y%m%d")
 test_dir = Path(__file__).parent
 data_dir = (test_dir / "data").resolve()
@@ -82,7 +84,7 @@ def restore_conf():
 @pytest.fixture
 def clean_dir(autouse=True):
     if os.path.exists(forcings_dir):
-        os.system(f"rm -rf {str(forcings_dir)}")
+        os.system(f"rm -rf {forcings_dir!s}")
 
 
 def test_nomads_prod(download_weight_file, clean_forcings_metadata_dirs):
@@ -291,7 +293,7 @@ def test_retro_3_0(download_weight_file, clean_forcings_metadata_dirs):
 
 def test_s3_output(download_weight_file, clean_forcings_metadata_dirs, clean_s3_test):
     test_bucket = "ciroh-community-ngen-datastream"
-    if "plot" in conf.keys():
+    if "plot" in conf:
         conf.pop("plot")
     conf["forcing"]["nwm_file"] = RETRO_FILENAMELIST
     conf["storage"]["output_path"] = (

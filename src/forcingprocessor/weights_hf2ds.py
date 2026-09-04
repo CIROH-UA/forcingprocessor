@@ -1,19 +1,18 @@
 """Utility functions for hydrofabric catchment weights."""
 
-import json
 import argparse
-import time
-import os
-from io import BytesIO
-from typing import Tuple
 import concurrent.futures as cf
+import json
 import multiprocessing as mp
+import os
+import time
+from io import BytesIO
 
-import requests
 import geopandas as gpd
-import pandas as pd
-import xarray as xr
 import numpy as np
+import pandas as pd
+import requests
+import xarray as xr
 from exactextract import exact_extract
 from exactextract.raster import NumPyRasterSource
 
@@ -24,7 +23,7 @@ gpd.options.io_engine = "pyogrio"
 
 def _rastersourceNexactextract(
     raster_data: xr.Dataset, geo_data: gpd.GeoDataFrame
-) -> pd.DataFrame | gpd.GeoDataFrame | list | None:
+) -> pd.DataFrame | None:
     ncatch_proc = len(geo_data)
 
     print(f"Finding weights for geodataframe of size {ncatch_proc}", flush=True)
@@ -36,7 +35,7 @@ def _rastersourceNexactextract(
     t0 = time.perf_counter()
     rastersource = NumPyRasterSource(
         np.squeeze(raster_data["T2D"]),
-        srs_wkt=geo_data.crs.to_wkt(), # type: ignore
+        srs_wkt=geo_data.crs.to_wkt(),  # type: ignore
         xmin=xmin,
         xmax=xmax,
         ymin=ymin,
@@ -58,10 +57,10 @@ def _rastersourceNexactextract(
         flush=True,
     )
 
-    return output
+    return output  # type: ignore
 
 
-def _get_projection(raster_filepath: str) -> Tuple[str, xr.Dataset]:
+def _get_projection(raster_filepath: str) -> tuple[str, xr.Dataset]:
     if "https://" in raster_filepath:
         print("Downloading file...")
         response = requests.get(raster_filepath, timeout=10)
@@ -85,7 +84,7 @@ def _get_projection(raster_filepath: str) -> Tuple[str, xr.Dataset]:
             + "FORCING/2018/201801010000.LDASIN_DOMAIN1"
         )
         if raster_backup == raster_file:
-            raise Exception("Projection failed") from exc
+            raise RuntimeError("Projection failed") from exc
         print(
             f"No projection found in {raster_file}\nSwitching to template file: {raster_backup}"
         )
@@ -140,8 +139,12 @@ def calc_weights_from_gdf(
         max_workers=nprocs,
         mp_context=mp.get_context("spawn"),
     ) as pool:
-        for results in pool.map(_rastersourceNexactextract, raster_list, geo_df_list):
-            output_list.append(results)
+        # for results in pool.map(_rastersourceNexactextract, raster_list, geo_df_list):
+        #     output_list.append(results)
+
+        output_list = list(
+            pool.map(_rastersourceNexactextract, raster_list, geo_df_list)
+        )
     print("Concatenating results", flush=True)
     output = pd.concat(output_list, ignore_index=True)
     weights = output.set_index("divide_id")
@@ -150,7 +153,7 @@ def calc_weights_from_gdf(
 
 def multiprocess_hf2ds(
     files: list, raster_template: str, max_procs: int
-) -> Tuple[pd.DataFrame, dict]:
+) -> tuple[pd.DataFrame, dict]:
     """Parallelized weights extraction from a list of files.
 
     Args:
@@ -210,7 +213,7 @@ def multiprocess_hf2ds(
     return weights_df, jcatchment_dict
 
 
-def hf2ds(files: list, raster: str, nf) -> Tuple[pd.DataFrame, dict]:
+def hf2ds(files: list, raster: str, nf) -> tuple[pd.DataFrame, dict]:
     """
     Extracts the weights from a list of files
 

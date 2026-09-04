@@ -1,8 +1,9 @@
 """Reads a json configuration file and runs nwmurl to generate NWM forcing file names."""
 
+import argparse
 import json
 import os
-import argparse
+
 import nwmurl
 
 
@@ -63,7 +64,9 @@ if __name__ == "__main__":
     if "s3" in args.infile:
         os.system(f"wget {args.infile}")
         filename = args.infile.split("/")[-1]
-        config = json.load(open(filename, encoding="utf-8"))
+        with open(filename, encoding="utf-8") as f:
+            config = json.load(f)
     else:
-        config = json.load(open(args.infile, encoding="utf-8"))
+        with open(args.infile, encoding="utf-8") as f:
+            config = json.load(f)
     generate_nwmfiles(config)

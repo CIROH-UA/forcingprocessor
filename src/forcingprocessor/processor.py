@@ -5,40 +5,41 @@ import concurrent.futures as cf
 import json
 import os
 import shutil
+import subprocess
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
-import subprocess
 
 import gcsfs
 import geopandas as gpd
 import numpy as np
+import pandas as pd
 import requests
 import s3fs
 import xarray as xr
-import pandas as pd
 
 from forcingprocessor.channel_routing_tools import (
     channelrouting_nwm2ngen,
     write_netcdf_chrt,
 )
 from forcingprocessor.config import (
+    NWMFileMetadata,
+    OutputLayout,
+    RunConfig,
     build_output_layout,
     parse_nwm_filenames,
     read_config,
     write_run_manifest,
-    RunConfig,
-    NWMFileMetadata,
-    OutputLayout,
 )
 from forcingprocessor.metadata import collect_metadata
 from forcingprocessor.plot_forcings import plot_ngen_forcings
 from forcingprocessor.troute_restart_tools import create_restart, write_netcdf_restart
 from forcingprocessor.utils import (
     B2MB,
+    Profiler,
     convert_url2key,
     distribute_work,
     get_window,
@@ -46,7 +47,6 @@ from forcingprocessor.utils import (
     ngen_variables,
     nwm_variables,
     phase,
-    Profiler,
     read_dataset,
     read_json,
     report_usage,
@@ -368,7 +368,7 @@ def _forcing_grid2catchment(
                     t = datetime.strftime(
                         datetime.strptime(
                             nwm_file.split("/")[-1].split(".")[0], "%Y%m%d%H"
-                        ),
+                        ).replace(tzinfo=UTC),
                         "%Y-%m-%d %H:%M:%S",
                     )
                 else:
@@ -395,8 +395,7 @@ def _forcing_grid2catchment(
         data_allvars = data_allvars.reshape(nvar, dx * dy)
         ncatch = len(weights_df)
         data_array = np.zeros((nvar, ncatch), dtype=np.float64)
-        jcatch = 0
-        for row in weights_df.itertuples():
+        for jcatch, row in enumerate(weights_df.itertuples()):
             weights = row.cell_id
             coverage = np.array(row.coverage)
             coverage_mat = np.repeat(coverage[None, :], nvar, axis=0)
@@ -405,14 +404,16 @@ def _forcing_grid2catchment(
                 weights_dx,
                 weights_dy,
             ) = np.unravel_index(
-                weights, (shp[2], shp[1]), order="F"  # type: ignore
+                weights,  # type: ignore
+                (shp[2], shp[1]),
+                order="F",
             )
             weights_dx_shifted = list(weights_dx - x_min)
             weights_dy_shifted = list(weights_dy - y_min)
             weights_window = np.ravel_multi_index(
                 np.array([weights_dx_shifted, weights_dy_shifted]),
-                (dx, dy), # type: ignore
-                order="F"
+                (dx, dy),  # type: ignore
+                order="F",
             )
             jcatch_data_mask = data_allvars[:, weights_window]
 
@@ -420,7 +421,6 @@ def _forcing_grid2catchment(
             data_array[:, jcatch] = (
                 np.sum(coverage_mat * jcatch_data_mask, axis=1) / weight_sum
             )
-            jcatch += 1
 
         del data_allvars
         data_list.append(data_array)
@@ -560,9 +560,9 @@ def _extract(
             else:
                 raise TypeError("geom.nwm_ngen_map cannot be None")
 
-        if datetime.strptime(t_ax[0], "%Y-%m-%d %H:%M:%S") > datetime.strptime(
-            t_ax[-1], "%Y-%m-%d %H:%M:%S"
-        ):
+        if datetime.strptime(t_ax[0], "%Y-%m-%d %H:%M:%S").replace(
+            tzinfo=UTC
+        ) > datetime.strptime(t_ax[-1], "%Y-%m-%d %H:%M:%S").replace(tzinfo=UTC):
             # Hack to ensure data is always written out with time moving forward.
             t_ax = list(reversed(t_ax))
             data_array = np.flip(data_array, axis=0)
@@ -847,8 +847,8 @@ def prep_ngen_data(conf: dict) -> None:
     if "tar" in cfg.output_file_type:
         if cfg.data_source == "troute_restarts":
             print(
-                "TAR file writing is not implemented for t-route restarts, " +
-                "skipping tarball creation"
+                "TAR file writing is not implemented for t-route restarts, "
+                + "skipping tarball creation"
             )
         else:
             with phase("TAR", profiler):
@@ -892,9 +892,11 @@ def main():
         if "s3://" in args.infile:
             subprocess.run(["wget", f"{args.infile}"], check=True)
             filename = args.infile.split("/")[-1]
-            conf = json.load(open(filename, encoding="utf-8"))
+            with open(filename, encoding="utf-8") as f:
+                conf = json.load(f)
         else:
-            conf = json.load(open(args.infile, encoding="utf-8"))
+            with open(args.infile, encoding="utf-8") as f:
+                conf = json.load(f)
 
     prep_ngen_data(conf)
 

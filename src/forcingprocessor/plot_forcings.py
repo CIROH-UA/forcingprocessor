@@ -1,18 +1,20 @@
 """Tools for plotting NGEN and NWM forcings side-by-side as gifs."""
+
 import argparse
 import os
+from datetime import UTC, datetime
 from pathlib import Path
-from datetime import datetime
+
+import geopandas as gpd
+import imageio.v2 as imageio
 import matplotlib as mpl
 import matplotlib.pyplot as plt
-import imageio.v2 as imageio
 import numpy as np
 import pandas as pd
-import geopandas as gpd
 import xarray as xr
 
+from forcingprocessor.utils import get_window, ngen_variables, nwm_variables
 from forcingprocessor.weights_hf2ds import hf2ds
-from forcingprocessor.utils import get_window, nwm_variables, ngen_variables
 
 plt.style.use("dark_background")
 mpl.use("Agg")
@@ -77,7 +79,7 @@ def plot_ngen_forcings(
             )
 
             domain = os.path.basename(geopackage).split(".")[0]
-            plt.suptitle(f"{domain} {t_ax[j]}")
+            plt.suptitle(f"{domain} {jtime}")
             if not os.path.exists(output_dir):
                 os.mkdir(output_dir)
             plt.savefig(os.path.join(output_dir, fig_name))
@@ -124,7 +126,7 @@ def nc_to_3darray(
 
     t_ax_dt = []
     for jt in list(t_ax):
-        t_ax_dt.append(datetime.fromtimestamp(jt).strftime("%Y%m%d%H%M"))
+        t_ax_dt.append(datetime.fromtimestamp(jt, tz=UTC).strftime("%Y%m%d%H%M"))
 
     return ngen_data, t_ax_dt, catchment_ids
 

@@ -3,17 +3,18 @@ Unit tests for restart utility functions.
 """
 
 import os
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
+
 import numpy as np
 import pytest
 import xarray as xr
 
+from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
+from forcingprocessor.processor import prep_ngen_data
 from forcingprocessor.troute_restart_tools import (
     create_restart,
 )
-from forcingprocessor.processor import prep_ngen_data
-from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
 
 # ---------------------------------------------------------------------------
 # minimum viable examples
@@ -52,6 +53,7 @@ simple_cat_map = {
 # unit tests
 # ---------------------------------------------------------------------------
 
+
 def test_restart():
     result = create_restart(
         simple_cat_map, simple_crosswalk_ds, simple_nwm_ds, simple_routelink_ds
@@ -79,11 +81,11 @@ def test_restart():
 # ---------------------------------------------------------------------------
 
 HF_VERSION = "v2.2"
-date = datetime.now(timezone.utc)
+date = datetime.now(UTC)
 date = date.strftime("%Y%m%d")
 HOURMINUTE = "0000"
 TODAY_START = date + HOURMINUTE
-yesterday = datetime.now(timezone.utc) - timedelta(hours=24)
+yesterday = datetime.now(UTC) - timedelta(hours=24)
 yesterday = yesterday.strftime("%Y%m%d")
 test_dir = Path(__file__).parent
 data_dir = (test_dir / "data").resolve()
@@ -126,7 +128,7 @@ nwmurl_conf = {
 @pytest.fixture
 def clean_dir(autouse=True):
     if os.path.exists(forcings_dir):
-        os.system(f"rm -rf {str(forcings_dir)}")
+        os.system(f"rm -rf {forcings_dir!s}")
 
 
 def test_nomads_prod():

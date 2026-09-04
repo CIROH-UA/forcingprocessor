@@ -1,20 +1,19 @@
 """Data processing and task distribution utility functions."""
 
-from datetime import datetime, timezone
 import json
-from contextlib import contextmanager
 import re
 import time
-from pathlib import Path
+from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import UTC, datetime
+from pathlib import Path
 
+import netCDF4 as nc
+import numpy as np
+import pandas as pd
 import psutil
 import s3fs
-import numpy as np
 import xarray as xr
-import netCDF4 as nc
-import pandas as pd
-
 
 B2MB = 1048576
 
@@ -88,7 +87,7 @@ def get_window(weights_df: pd.DataFrame) -> tuple[int, int, int, int]:
         idx_2d = []
         for row in weights_df.itertuples():
             indices = row.cell_id
-            idx_2d = np.unravel_index(indices, (1, nx, ny), order="F") # type: ignore
+            idx_2d = np.unravel_index(indices, (1, nx, ny), order="F")  # type: ignore
             x_min_list.append(np.min(idx_2d[1]))
             x_max_list.append(np.max(idx_2d[1]))
             y_min_list.append(np.min(idx_2d[2]))
@@ -105,9 +104,11 @@ def get_window(weights_df: pd.DataFrame) -> tuple[int, int, int, int]:
 
     return x_min, x_max, y_min, y_max
 
+
 @dataclass
 class Profiler:
     """Log of the name of steps and their timings."""
+
     log_file: str
     timings: dict
 
@@ -117,7 +118,7 @@ class Profiler:
         Args:
             label (str): Name of processing milestone.
         """
-        timestamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d%H%M%S")
+        timestamp = datetime.now(UTC).astimezone().strftime("%Y%m%d%H%M%S")
         with open(self.log_file, "a", encoding="utf-8") as f:
             f.write(f"{label}: {timestamp}\n")
 
@@ -178,7 +179,7 @@ def distribute_work(items, nprocs):
     return items_per_proc
 
 
-def load_balance(items_per_proc: list, ii_verbose: bool=False):
+def load_balance(items_per_proc: list, ii_verbose: bool = False):
     """
     Drop the processes that were assigned no work.
 
@@ -211,13 +212,15 @@ def report_usage() -> tuple[float, float, float]:
     percent_ram = psutil.virtual_memory()[2]
     percent_cpu = psutil.cpu_percent()
     print(
-        f"\nCurrent RAM usage (GB): {usage_ram:.2f}, {percent_ram:.2f}%" +
-        f"\nCurrent CPU usage : {percent_cpu:.2f}%"
+        f"\nCurrent RAM usage (GB): {usage_ram:.2f}, {percent_ram:.2f}%"
+        + f"\nCurrent CPU usage : {percent_cpu:.2f}%"
     )
     return usage_ram, percent_ram, percent_cpu
 
 
-def convert_url2key(nwm_file: str | Path, fs_type: str | None) -> tuple[str | None, str]:
+def convert_url2key(
+    nwm_file: str | Path, fs_type: str | None
+) -> tuple[str | None, str]:
     """Convert a NWM file URL to a bucket and key for cloud storage.
 
     Args:
@@ -248,7 +251,10 @@ def convert_url2key(nwm_file: str | Path, fs_type: str | None) -> tuple[str | No
 
 
 def make_forcing_netcdf(
-    out_path: str | Path, catchments: np.ndarray, t_ax: np.ndarray, input_array: np.ndarray
+    out_path: str | Path,
+    catchments: np.ndarray,
+    t_ax: np.ndarray,
+    input_array: np.ndarray,
 ) -> None:
     """
     Create a netcdf file with the forcing data.
@@ -260,7 +266,7 @@ def make_forcing_netcdf(
         input_array (np.ndarray): Forcing data array with shape (ncat, nt, forcing variables).
     """
 
-    with nc.Dataset(out_path, "w", format="NETCDF4") as ds: # pylint: disable=no-member
+    with nc.Dataset(out_path, "w", format="NETCDF4") as ds:  # pylint: disable=no-member
         ds.createDimension("catchment-id", len(catchments))
         ds.createDimension("time", len(t_ax))
 

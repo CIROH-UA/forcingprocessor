@@ -7,17 +7,19 @@
 # processing a single nwm forcing file, and the writing to a test location in the producting bucket.
 
 import os
+import re
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
-from datetime import datetime, timedelta, timezone
-from forcingprocessor.processor import prep_ngen_data
-from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
-from forcingprocessor.utils import vpus
+
 import boto3
 from botocore.exceptions import ClientError
-import re
+
+from forcingprocessor.nwm_filenames_generator import generate_nwmfiles
+from forcingprocessor.processor import prep_ngen_data
+from forcingprocessor.utils import vpus
 
 HF_VERSION = "v2.2"
-TODAY = datetime.now(timezone.utc)
+TODAY = datetime.now(UTC)
 TODAY_YYMMDD = TODAY.strftime("%Y%m%d")
 hourminute = "0000"
 TODAY_YYMMDDHHMM = TODAY_YYMMDD + hourminute
@@ -28,7 +30,6 @@ test_dir = Path(__file__).parent
 data_dir = (test_dir / "data").resolve()
 forcings_dir = (data_dir / "forcings").resolve()
 pwd = Path.cwd()
-data_dir = data_dir
 if os.path.exists(data_dir):
     os.system(f"rm -rf {data_dir}")
 os.system(f"mkdir {data_dir}")

@@ -1,14 +1,14 @@
 """Tools to subset CONUS hydrofabric into VPUs and create weights for each VPU."""
 
-import os
-import re
-import copy
-import json
 import argparse
 import concurrent.futures as cf
+import copy
+import json
+import os
+import re
 
-import numpy as np
 import geopandas as gpd
+import numpy as np
 
 from forcingprocessor.weights_hf2ds import calc_weights_from_gdf
 
@@ -191,14 +191,14 @@ def subset_conus2vpus(
             with open(
                 os.path.join(output_dir, f"missing_catchment_attrs_{jvpu}.txt"),
                 mode="w",
-                encoding="utf-8"
+                encoding="utf-8",
             ) as fp:
                 fp.writelines(txt_file)
         if len(txt_file2) > 0:
             with open(
                 os.path.join(output_dir, f"missing_catchment_divides_{jvpu}.txt"),
                 mode="w",
-                encoding="utf-8"
+                encoding="utf-8",
             ) as fp:
                 fp.writelines(txt_file2)
 

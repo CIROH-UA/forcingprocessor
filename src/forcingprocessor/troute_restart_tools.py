@@ -3,13 +3,15 @@ Tools to extract and write streamflow and depth values into a restart format ing
 t-route. Translates between NWM and NGEN IDs!
 """
 
-from pathlib import Path
-import tempfile
 import os
-import xarray as xr
+import tempfile
+from pathlib import Path
+
+import boto3
 import numpy as np
 import pandas as pd
-import boto3
+import xarray as xr
+
 from forcingprocessor.utils import convert_url2key
 
 B2MB = 1048576
@@ -194,7 +196,7 @@ def create_restart(
     cat_ids_flat = np.array(cat_ids_flat)
 
     nwm_agg, mapping_df = _average_nwm_variables(nwm_ids_flat, cat_ids_flat, nwm_ds)
-    rl_agg =_average_rtlink_variables(nwm_ids_flat, mapping_df, routelink_ds)
+    rl_agg = _average_rtlink_variables(nwm_ids_flat, mapping_df, routelink_ds)
     result_df = pd.DataFrame({"cat_id": crosswalk_ds["link"].values})
     result_df = result_df.join(nwm_agg, on="cat_id").join(rl_agg, on="cat_id").fillna(0)
 
@@ -226,7 +228,9 @@ def create_restart(
     return restart
 
 
-def write_netcdf_restart(storage_type: str, prefix: Path | str, ds: xr.Dataset, name: str):
+def write_netcdf_restart(
+    storage_type: str, prefix: Path | str, ds: xr.Dataset, name: str
+):
     """
     Write restart data to a NetCDF file.
 
@@ -239,7 +243,7 @@ def write_netcdf_restart(storage_type: str, prefix: Path | str, ds: xr.Dataset, 
         netcdf_cat_file_size (list): file size of output netcdf
     """
     if storage_type == "s3":
-        s3_client = boto3.session.Session().client("s3") # type: ignore
+        s3_client = boto3.session.Session().client("s3")  # type: ignore
         nc_filename = str(prefix) + "/" + name
         bucket, key = convert_url2key(nc_filename, "s3")
         with tempfile.NamedTemporaryFile(suffix=".nc") as tmpfile:
