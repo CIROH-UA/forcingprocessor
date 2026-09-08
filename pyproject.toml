@@ -8,30 +8,30 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "boto3",
-    "cftime",
-    "dask",
-    "exactextract",
-    "gcsfs",
-    "geopandas",
-    "imageio",
-    "matplotlib",
-    "netCDF4",
-    "h5netcdf",
-    "h5py",
-    "nwmurl==1.0.1",
-    "pandas",
-    "psutil",
-    "pyarrow",
-    "pyogrio",
-    "requests",
-    "s3fs",
-    "scipy",
-    "xarray",
+    "boto3>=1.43.56",
+    "cftime>=1.6.5",
+    "dask>=2026.7.1",
+    "exactextract>=0.3.0",
+    "gcsfs>=2026.7.0,<2026.8.0", # 2026.8.0 deadlocks worker processes on GCS reads
+    "geopandas>=1.1.4",
+    "imageio>=2.37.4",
+    "matplotlib>=3.11.1",
+    "netCDF4>=1.7.4",
+    "h5netcdf>=1.8.1",
+    "h5py>=3.16.0",
+    "nwmurl>=1.0.8",
+    "pandas>=3.0.5",
+    "psutil>=7.2.2",
+    "pyarrow>=25.0.1",
+    "pyogrio>=0.13.0",
+    "requests>=2.34.2",
+    "s3fs>=2026.7.0",
+    "scipy>=1.17.1",
+    "xarray>=2026.7.0",
 ]
 
 [project.optional-dependencies]
-develop = ["pytest"]
+develop = ["pytest>=9.1.1"]
 
 [project.scripts]
 forcingprocessor = "forcingprocessor.processor:main"
