@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+set -e
+echo "Running fast test suite before push (pytest -m 'not network and not aws_creds')..."
+pytest -m "not network and not aws_creds"

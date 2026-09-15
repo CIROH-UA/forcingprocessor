@@ -42,3 +42,9 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: test downloads data over the network (public, no credentials required)",
+    "aws_creds: test requires AWS credentials (writes/reads a private S3 bucket)",
+]
