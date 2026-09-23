@@ -1,166 +1,102 @@
-"""Tools to extract and write q_lateral values into a format ingestible by
-t-route. Translates between NWM and NGEN IDs!"""
+"""Channel routing kernel: q_lateral per NGEN nexus, summed from the NWM feature ids that drain to
+it. Translates between NWM and NGEN IDs!
+
+    (CHRTOUT dataset, nexus -> NWM id mapping) -> (nnexus, 2) of [nexus id, q_lateral]
+"""
 
 import itertools
 import os
 import tempfile
-import time
 from datetime import UTC, datetime
-from io import BytesIO
 from pathlib import Path
 
 import boto3
-import gcsfs
 import numpy as np
 import pandas as pd
-import requests
 import xarray as xr
 
-from forcingprocessor.utils import convert_url2key, report_usage
+from forcingprocessor.utils import convert_url2key
 
 B2MB = 1048576
 
 
-def channelrouting_nwm2ngen(
-    nwm_files: list,
-    mapping_arg: dict,
-    fs_type_arg: str,
-    fs_arg=None,
-    ii_verbose_arg: bool = False,
-):
+def mapped_nwm_ids(mapping: dict) -> list:
+    """Every NWM feature id referenced by the nexus mapping.
+
+    Args:
+        mapping (dict): Dictionary of NGEN nexus to NWM feature id maps.
+
+    Returns:
+        list: Every NWM feature id the mapping refers to.
     """
-    Retrieve catchment level data from national water model files
+    return list(itertools.chain.from_iterable(list(mapping.values())))
 
-    Inputs:
-    nwm_files (list): list of filenames (urls for remote, local paths otherwise),
-    fs_arg (filesystem): an optional file system for cloud storage reads
-    mapping_arg (dict): dictionary of NWM to NGEN ID maps
-    fs_type_arg (str): type of file system
-    ii_verbose_arg (bool): verbosity
 
-    Outputs: [data_list, t_list, nwm_file_sizes_MB]
-    data_list (list): list of ngen forcings ordered in time.
-    t_list (list): list of model output times
-    nwm_file_sizes_MB (list): list of file sizes of input CHRTOUT data
+def read_qlateral(
+    nwm_data: xr.Dataset, nwm_file: str, nwm_ids: list
+) -> tuple[dict, str, set]:
+    """Read q_lateral for the requested NWM feature ids out of one CHRTOUT file.
+
+    Operational CHRTOUT carries the two runoff terms separately and must be summed; retrospective
+    files carry q_lateral directly and date stamp the filename rather than the attributes.
+
+    Args:
+        nwm_data (xr.Dataset): An open CHRTOUT file.
+        nwm_file (str): The file's name, which carries the timestamp for retrospective data.
+        nwm_ids (list): The NWM feature ids the mapping refers to.
+
+    Returns:
+        tuple[dict, str, set]: q_lateral per feature id, the model output valid time, and the ids
+            actually present in the file.
     """
-    topen = 0
-    txrds = 0
-    tfill = 0
-    tdata = 0
-    t_list = []
-    nfiles = len(nwm_files)
-    nwm_cats = list(itertools.chain.from_iterable(list(mapping_arg.values())))
-    if fs_type_arg == "google":
-        fs_arg = gcsfs.GCSFileSystem()
-    pid = os.getpid()
-    if ii_verbose_arg:
+    try:
+        subset = nwm_data.sel(feature_id=nwm_ids)
+        valid_nwm_cats = nwm_ids
+    except KeyError:
         print(
-            f"Process #{pid} extracting data from {nfiles} files", end=None, flush=True
-        )
-    data_list = []
-    nwm_file_sizes_MB = []
-    for j, nwm_file in enumerate(nwm_files):
-        t0 = time.perf_counter()
-        if fs_arg:
-            if nwm_file.find("https://") >= 0:
-                _, bucket_key = convert_url2key(nwm_file, fs_type_arg)
-            else:
-                bucket_key = nwm_file
-            file_obj = fs_arg.open(bucket_key, mode="rb")
-            nwm_file_sizes_MB.append(file_obj.details["size"])  # type: ignore
-        elif "https://" in nwm_file:
-            response = requests.get(nwm_file, timeout=10)
-
-            if response.status_code == 200:
-                file_obj = BytesIO(response.content)
-            else:
-                raise RuntimeError(f"{nwm_file} does not exist")
-            nwm_file_sizes_MB.append(len(response.content) / B2MB)
-        else:
-            file_obj = nwm_file
-            nwm_file_sizes_MB.append(os.path.getsize(nwm_file / B2MB))
-
-        topen += time.perf_counter() - t0
-        t0 = time.perf_counter()
-        with xr.open_dataset(file_obj, chunks={}) as nwm_data:
-            txrds += time.perf_counter() - t0
-            t0 = time.perf_counter()
-            data_allnwm = {}
-            try:
-                subset = nwm_data.sel(feature_id=nwm_cats)
-                valid_nwm_cats = nwm_cats
-            except KeyError:
-                print(
-                    f"Some NWM IDs from the mapping are not present in {nwm_file}. Only "
-                    + "processing available IDs.",
-                    flush=True,
-                )
-                feature_ids_in_file = set(nwm_data["feature_id"].values)
-                valid_nwm_cats = feature_ids_in_file.intersection(nwm_cats)
-                subset = nwm_data.sel(feature_id=list(valid_nwm_cats))
-            if "retrospective" in nwm_file:
-                data_allnwm = dict(
-                    zip(subset["feature_id"].values, subset["q_lateral"].values)
-                )
-                t = datetime.strftime(
-                    datetime.strptime(
-                        nwm_file.split("/")[-1].split(".")[0], "%Y%m%d%H%M"
-                    ).replace(tzinfo=UTC),
-                    "%Y-%m-%d %H:%M:%S",
-                )
-            else:
-                # q_lateral is calculated by adding these two together
-                subset["q_lateral"] = subset["qSfcLatRunoff"] + subset["qBucket"]
-                data_allnwm = dict(
-                    zip(subset["feature_id"].values, subset["q_lateral"].values)
-                )
-                time_splt = subset.attrs["model_output_valid_time"].split("_")
-                t = time_splt[0] + " " + time_splt[1]
-            t_list.append(t)
-        del nwm_data, subset
-        tfill += time.perf_counter() - t0
-
-        t0 = time.perf_counter()
-        data_allngen = {}
-        valid_nwm_set = set(valid_nwm_cats)
-        for ngen_nex, nwm_ids in mapping_arg.items():
-            data_allngen[ngen_nex] = sum(
-                data_allnwm[nwm_id] for nwm_id in nwm_ids if nwm_id in valid_nwm_set
-            )
-        data_array = np.array(list(data_allngen.items()))
-
-        data_list.append(data_array)
-        tdata += time.perf_counter() - t0
-        ttotal = topen + txrds + tfill + tdata
-        if ii_verbose_arg:
-            print(
-                f"\nAverage time for:\nfs open file: {topen / (j + 1):.2f} s\n",
-                end=None,
-                flush=True,
-            )
-            print(
-                f"xarray open dataset: {txrds / (j + 1):.2f} s"
-                + f"\nfill array: {tfill / (j + 1):.2f} s\n",
-                end=None,
-                flush=True,
-            )
-            print(
-                f"calculate catchment values: {tdata / (j + 1):.2f} s"
-                + f"\ntotal {ttotal / (j + 1):.2f} s\n",
-                end=None,
-                flush=True,
-            )
-            print(
-                f"percent complete {100 * (j + 1) / nfiles:.2f}", end=None, flush=True
-            )
-        report_usage()
-
-    if ii_verbose_arg:
-        print(
-            f"Process #{pid} completed data extraction, returning data to primary process",
+            f"Some NWM IDs from the mapping are not present in {nwm_file}. Only "
+            + "processing available IDs.",
             flush=True,
         )
-    return [data_list, t_list, nwm_file_sizes_MB]
+        feature_ids_in_file = set(nwm_data["feature_id"].values)
+        valid_nwm_cats = list(feature_ids_in_file.intersection(nwm_ids))
+        subset = nwm_data.sel(feature_id=valid_nwm_cats)
+
+    if "retrospective" in nwm_file:
+        t = datetime.strftime(
+            datetime.strptime(
+                nwm_file.split("/")[-1].split(".")[0], "%Y%m%d%H%M"
+            ).replace(tzinfo=UTC),
+            "%Y-%m-%d %H:%M:%S",
+        )
+    else:
+        # q_lateral is calculated by adding these two together
+        subset["q_lateral"] = subset["qSfcLatRunoff"] + subset["qBucket"]
+        time_splt = subset.attrs["model_output_valid_time"].split("_")
+        t = time_splt[0] + " " + time_splt[1]
+
+    data_allnwm = dict(zip(subset["feature_id"].values, subset["q_lateral"].values))
+    return data_allnwm, t, set(valid_nwm_cats)
+
+
+def sum_to_nexus(data_allnwm: dict, mapping: dict, valid_nwm_set: set) -> np.ndarray:
+    """Sum every contributing NWM feature into its NGEN nexus.
+
+    Args:
+        data_allnwm (dict): q_lateral per NWM feature id.
+        mapping (dict): Dictionary of NGEN nexus to NWM feature id maps.
+        valid_nwm_set (set): The feature ids actually present in the file.
+
+    Returns:
+        np.ndarray: Array of shape (nnexus, 2) holding [nexus id, q_lateral].
+    """
+    data_allngen = {
+        ngen_nex: sum(
+            data_allnwm[nwm_id] for nwm_id in nwm_ids if nwm_id in valid_nwm_set
+        )
+        for ngen_nex, nwm_ids in mapping.items()
+    }
+    return np.array(list(data_allngen.items()))
 
 
 def write_netcdf_chrt(

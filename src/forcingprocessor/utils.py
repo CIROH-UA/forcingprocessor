@@ -1,17 +1,20 @@
 """Data processing and task distribution utility functions."""
 
 import json
+import os
 import re
 import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from io import BytesIO
 from pathlib import Path
 
 import netCDF4 as nc
 import numpy as np
 import pandas as pd
 import psutil
+import requests
 import s3fs
 import xarray as xr
 
@@ -248,6 +251,57 @@ def convert_url2key(
         bucket = None
 
     return bucket, bucket_key
+
+
+def pool_filesystem(fs_type: str | None) -> s3fs.S3FileSystem | str | None:
+    """Filesystem handed to the extraction pool. Google is deferred to the workers
+    because a GCSFileSystem does not survive the trip to a subprocess.
+
+    Args:
+        fs_type (str | None): String describing filesystem type.
+
+    Returns:
+        s3fs.S3FileSystem | str | None: S3FileSystem for S3, "google" for GCS, None for local.
+    """
+    if fs_type == "s3":
+        return s3fs.S3FileSystem(anon=True, client_kwargs={"region_name": "us-east-1"})
+    if fs_type == "google":
+        return "google"
+    return None
+
+
+def open_nwm_file(
+    nwm_file: str, fs=None, fs_type: str | None = None
+) -> tuple[BytesIO | str, float]:
+    """Open one NWM file over whichever transport it needs.
+
+    Args:
+        nwm_file (str): URL for remote files, local path otherwise.
+        fs (s3fs.S3FileSystem | gcsfs.GCSFileSystem | None): An optional file system for cloud
+            storage reads. Defaults to None.
+        fs_type (str | None): Type of file system, "s3" or "google" or None. Defaults to None.
+
+    Raises:
+        FileNotFoundError: Raised when an HTTP request for the file returns an error status code.
+
+    Returns:
+        tuple[BytesIO | str, float]: The open file object and its size in MB.
+    """
+    if fs:
+        if str(nwm_file).find("https://") >= 0:
+            _, bucket_key = convert_url2key(nwm_file, fs_type)
+        else:
+            bucket_key = nwm_file
+        file_obj = fs.open(bucket_key, mode="rb")
+        return file_obj, file_obj.details["size"] / B2MB
+
+    if "https://" in str(nwm_file):
+        response = requests.get(nwm_file, timeout=10)
+        if response.status_code != 200:
+            raise FileNotFoundError(f"{nwm_file} does not exist")
+        return BytesIO(response.content), len(response.content) / B2MB
+
+    return nwm_file, os.path.getsize(nwm_file) / B2MB
 
 
 def make_forcing_netcdf(

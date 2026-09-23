@@ -2,9 +2,7 @@
 
 import json
 import os
-import re
 import shutil
-from dataclasses import dataclass
 from datetime import UTC, datetime
 from io import BytesIO
 from pathlib import Path
@@ -12,74 +10,38 @@ from pathlib import Path
 import boto3
 import pandas as pd
 
+from forcingprocessor.modes import select_mode
+from forcingprocessor.records import (
+    NWMFileMetadata,
+    OutputLayout,
+    RunConfig,
+)
 from forcingprocessor.utils import (
     convert_url2key,
     ngen_variables,
     normalize_vpu_id,
 )
 
+# Re-exported so that `from forcingprocessor.config import RunConfig` keeps working.
+__all__ = [
+    "FILE_TYPES",
+    "NWMFileMetadata",
+    "OutputLayout",
+    "RunConfig",
+    "build_output_layout",
+    "read_config",
+    "write_run_manifest",
+]
+
 FILE_TYPES = ["csv", "parquet", "tar", "netcdf"]
-
-# s3://noaa-nwm-pds/nwm.20241029/forcing_short_range/nwm.t00z.short_range.forcing.f001.conus.nc
-FILENAME_PATTERNS = {
-    "forcings": r"nwm\.(\d{8})/forcing_(\w+)/nwm\.(\w+)(\d{2})z\.\w+\.forcing\.(\w+)(\d{2})\.conus\.nc",
-    "channel_routing": r"nwm\.(\d{8})/(\w+)/nwm\.(\w+)(\d{2})z\.\w+\.channel_rt[^\.]*\.(\w+)(\d{2})\.conus\.nc",
-    # s3://noaa-nwm-pds/nwm.20241029/analysis_assim/nwm.t16z.analysis_assim.channel_rt.tm00.conus.nc
-    "troute_restarts": r"nwm\.(\d{8})/analysis_assim/nwm\.t(\d{2})z\.analysis_assim\.channel_rt\.tm00\.conus\.nc",
-}
-
-
-@dataclass
-class RunConfig:
-    """Contains information from the forcingprocessor configuration file."""
-
-    conf: dict
-    data_source: str
-    gpkg_files: list
-    vpu_ids: list
-    nwm_file: str
-    nwm_forcing_files: list
-    map_file: str
-    restart_map_file: str
-    crosswalk_file: str
-    routelink_file: str
-    output_path: str
-    output_file_type: list
-    storage_type: str
-    fs_type: str | None
-    nprocs: int
-    ii_verbose: bool
-    ii_collect_stats: bool
-    ii_plot: bool
-    nts_plot: int
-    ngen_vars_plot: list
-
-
-@dataclass
-class OutputLayout:
-    """Contains information on the path(s) where output files should be written."""
-
-    output_path: Path | str
-    forcing_path: Path | str
-    meta_path: Path | str
-    metaf_path: Path | str
-
-
-@dataclass
-class NWMFileMetadata:
-    """Contains information about the NWM data derived from the NWM file source URL."""
-
-    urlbase: str = ""
-    fcst_cycle: str | None = None
-    lead_start: str = ""
-    lead_end: str = ""
-    restart_date: str = ""
-    restart_hour: str = ""
 
 
 def read_config(conf: dict) -> RunConfig:
     """
     Parse and validate a forcingprocessor config into a RunConfig.
+
+    This is where the run type is resolved. The resulting RunConfig carries a bound Mode, so no
+    step below this one has to work out what kind of run it is in.
 
     Args:
         conf (dict): forcingprocessor config file
@@ -112,12 +74,7 @@ def read_config(conf: dict) -> RunConfig:
 
     map_file = forcing.get("map_file", None)
     restart_map_file = forcing.get("restart_map_file", None)
-    if map_file:  # NWM to NGEN channel routing processing requires json map
-        data_source = "channel_routing"
-    elif restart_map_file:
-        data_source = "troute_restarts"
-    else:
-        data_source = "forcings"
+    mode = select_mode(map_file=map_file, restart_map_file=restart_map_file)
 
     nwm_file = forcing.get("nwm_file", "")
     with open(nwm_file, "r", encoding="utf-8") as fp:
@@ -150,7 +107,7 @@ def read_config(conf: dict) -> RunConfig:
 
     plot = conf.get("plot", None)
     if plot:
-        if data_source != "forcings":
+        if not mode.supports_plotting:
             raise RuntimeError(
                 "Plotting not supported for channel routing or restart processing."
             )
@@ -166,7 +123,7 @@ def read_config(conf: dict) -> RunConfig:
 
     return RunConfig(
         conf=conf,
-        data_source=data_source,
+        mode=mode,
         gpkg_files=gpkg_files,
         vpu_ids=vpu_ids,
         nwm_file=nwm_file,
@@ -202,12 +159,6 @@ def build_output_layout(cfg: RunConfig) -> OutputLayout:
         OutputLayout: Information on the path(s) where output files should be written.
     """
     output_path = cfg.output_path
-    if cfg.data_source == "channel_routing":
-        forcing_subdir = ("outputs", "ngen")
-    elif cfg.data_source == "troute_restarts":
-        forcing_subdir = ("restart",)
-    else:
-        forcing_subdir = ("forcings",)
 
     if cfg.storage_type != "local":
         return OutputLayout(
@@ -223,7 +174,7 @@ def build_output_layout(cfg: RunConfig) -> OutputLayout:
     output_path = Path(output_path)
     layout = OutputLayout(
         output_path=output_path,
-        forcing_path=Path(output_path, *forcing_subdir),
+        forcing_path=Path(output_path, *cfg.mode.forcing_subdir),
         meta_path=Path(output_path, "metadata"),
         metaf_path=Path(output_path, "metadata", "forcings_metadata"),
     )
@@ -242,7 +193,7 @@ def build_output_layout(cfg: RunConfig) -> OutputLayout:
 
 def write_run_manifest(
     cfg: RunConfig, layout: OutputLayout, weights_df: pd.DataFrame | None = None
-) -> None:
+):
     """Store the inputs that produced this run alongside its outputs. Returns the
     s3 client used, which is reused for metadata writes, or None for local runs.
 
@@ -277,45 +228,4 @@ def write_run_manifest(
         weights_df.to_parquet(buf, index=False)
         buf.seek(0)
         s3.put_object(Bucket=bucket, Key=f"{key}/weights.parquet", Body=buf.getvalue())
-    return s3  # type: ignore
-
-
-def parse_nwm_filenames(cfg: RunConfig) -> NWMFileMetadata:
-    """Extract forecast cycle and lead time from the first and last file names.
-
-    Args:
-        cfg (RunConfig): forcingprocessor configuration information
-
-    Returns:
-        NWMFileMetadata: Information about the NWM data sourced from the URL.
-    """
-    pattern = FILENAME_PATTERNS[cfg.data_source]
-    files = cfg.nwm_forcing_files
-    meta = NWMFileMetadata()
-    match = re.search(pattern, files[0])
-
-    if cfg.data_source == "troute_restarts":
-        if match:
-            meta.restart_date = match.group(1)
-            meta.restart_hour = match.group(2)
-        else:
-            print("Could not extract restart date and time")
-        return meta
-
-    if match:
-        meta.urlbase = match.group(2)
-        meta.fcst_cycle = match.group(3) + match.group(4)
-        meta.lead_start = match.group(5) + match.group(6)
-    else:
-        print(
-            "Could not extract forecast cycle and lead start from the first NWM forcing file: "
-            + f"{files[0]}"
-        )
-
-    match = re.search(pattern, files[-1])
-    if match:
-        meta.lead_end = match.group(5) + match.group(6)
-    else:
-        print(f"Could not extract lead end from the last NWM forcing file: {files[-1]}")
-
-    return meta
+    return s3

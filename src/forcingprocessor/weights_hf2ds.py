@@ -1,154 +1,29 @@
-"""Utility functions for hydrofabric catchment weights."""
+"""Utility functions for hydrofabric catchment weights.
+
+Weights may reach forcingprocessor several different ways: already tabulated inside a geopackage,
+as a standalone parquet or json, or not at all. This module's job is to produce a weight table
+however it has to. When there is nothing to load it calls the generation kernel in weights.py.
+"""
 
 import argparse
 import concurrent.futures as cf
 import json
 import multiprocessing as mp
-import os
 import time
-from io import BytesIO
 
 import geopandas as gpd
-import numpy as np
 import pandas as pd
-import requests
-import xarray as xr
-from exactextract import exact_extract
-from exactextract.raster import NumPyRasterSource
 
 from forcingprocessor.utils import normalize_vpu_id
+from forcingprocessor.weights import calc_weights_from_gdf, normalize_weight_table
 
 gpd.options.io_engine = "pyogrio"
 
-
-def _rastersourceNexactextract(
-    raster_data: xr.Dataset, geo_data: gpd.GeoDataFrame
-) -> pd.DataFrame | None:
-    ncatch_proc = len(geo_data)
-
-    print(f"Finding weights for geodataframe of size {ncatch_proc}", flush=True)
-    xmin = raster_data.x[0]
-    xmax = raster_data.x[-1]
-    ymin = raster_data.y[0]
-    ymax = raster_data.y[-1]
-    # print(f"window {xmin.value} {xmax.value} {ymin.value} {ymax.value}")
-    t0 = time.perf_counter()
-    rastersource = NumPyRasterSource(
-        np.squeeze(raster_data["T2D"]),
-        srs_wkt=geo_data.crs.to_wkt(),  # type: ignore
-        xmin=xmin,
-        xmax=xmax,
-        ymin=ymin,
-        ymax=ymax,
-    )
-    print("raster calculated, executing exactextract", flush=True)
-    output = exact_extract(
-        rastersource,
-        geo_data,
-        ["cell_id", "coverage"],
-        include_cols=["divide_id"],
-        output="pandas",
-    )
-    tf = time.perf_counter() - t0
-    assert ncatch_proc == len(output)  # type: ignore
-    print(
-        f"single thread -> {ncatch_proc} weights calculated in {tf:.1f}s for a rate of "
-        + f"{ncatch_proc / tf:.1f}catch/s",
-        flush=True,
-    )
-
-    return output  # type: ignore
-
-
-def _get_projection(raster_filepath: str) -> tuple[str, xr.Dataset]:
-    if "https://" in raster_filepath:
-        print("Downloading file...")
-        response = requests.get(raster_filepath, timeout=10)
-
-        if response.status_code == 200:
-            raster_file = BytesIO(response.content)
-        else:
-            raster_file = raster_filepath
-    else:
-        raster_file = raster_filepath
-
-    print("Opening raster", flush=True)
-    try:
-        raster_data = xr.open_dataset(raster_file)
-        print("Attemping Projection", flush=True)
-        projection = raster_data.crs.esri_pe_string
-        print("Projection successful")
-    except Exception as exc:
-        raster_backup = (
-            "https://noaa-nwm-retrospective-3-0-pds.s3.amazonaws.com/CONUS/netcdf/"
-            + "FORCING/2018/201801010000.LDASIN_DOMAIN1"
-        )
-        if raster_backup == raster_file:
-            raise RuntimeError("Projection failed") from exc
-        print(
-            f"No projection found in {raster_file}\nSwitching to template file: {raster_backup}"
-        )
-        projection, raster_data = _get_projection(raster_backup)
-
-    return projection, raster_data
-
-
-def calc_weights_from_gdf(
-    gdf: gpd.GeoDataFrame, raster_file: str, nf: int
-) -> pd.DataFrame:
-    """Create a dict of weights from the "divides" layer geodataframe keys are divide_ids, values
-    are a 2 element list with the first element being a list of cell_id's and the second element
-    being the corresponding coverage fraction's
-
-    Args:
-        gdf (gpd.GeoDataFrame): Geodataframe containing the catchment geometries.
-        raster_file (str): Path to the raster file.
-        nf (int): Number of files to process.
-
-    Returns:
-        pd.DataFrame: A dataframe where index is catchment ids and the columns are the corresponding
-            cell and coverage
-    """
-
-    projection, raster_data = _get_projection(raster_file)
-    geo_data = gdf.to_crs(projection)
-    nrows = len(gdf)
-
-    cpu_count = os.cpu_count()
-    if cpu_count is None:
-        cpu_count = 1
-
-    nprocs = max(min(nrows // 9000, (cpu_count - 1) // nf), 1)
-    geo_df_list = []
-    nper = nrows // nprocs
-    nleft = nrows - (nper * nprocs)
-    i = 0
-    k = nper
-    for j in range(nprocs):
-        if j < nleft:
-            k += 1
-        print(f"{i} {k} {k - i}")
-        geo_df_list.append(geo_data[i:k])
-        i = k
-        k = nper + i
-
-    print("Performing multiprocess exactextract", flush=True)
-    output_list = []
-    raster_list = [raster_data for x in range(nprocs)]
-    with cf.ProcessPoolExecutor(
-        max_workers=nprocs,
-        mp_context=mp.get_context("spawn"),
-    ) as pool:
-        # for results in pool.map(_rastersourceNexactextract, raster_list, geo_df_list):
-        #     output_list.append(results)
-
-        output_list = list(
-            pool.map(_rastersourceNexactextract, raster_list, geo_df_list)
-        )
-    print("Concatenating results", flush=True)
-    output = pd.concat(output_list, ignore_index=True)
-    weights = output.set_index("divide_id")
-    return weights
+__all__ = [
+    "calc_weights_from_gdf",
+    "hf2ds",
+    "multiprocess_hf2ds",
+]
 
 
 def multiprocess_hf2ds(
@@ -213,14 +88,17 @@ def multiprocess_hf2ds(
     return weights_df, jcatchment_dict
 
 
-def hf2ds(files: list, raster: str, nf) -> tuple[pd.DataFrame, dict]:
+def hf2ds(
+    files: list, raster: str | None = None, nf: int = 1
+) -> tuple[pd.DataFrame, dict]:
     """
     Extracts the weights from a list of files
 
     Args:
         files (list): List of geopackage or parquet files to process.
-        raster (str): Path to the raster file.
-        nf (int): Number of files to process.
+        raster (str | None): Path to the raster file. Only needed when a source carries no weights
+            table and they have to be calculated. Defaults to None.
+        nf (int): Number of files to process. Defaults to 1.
 
     Returns:
         Tuple[pd.DataFrame, dict]:
@@ -248,16 +126,21 @@ def hf2ds(files: list, raster: str, nf) -> tuple[pd.DataFrame, dict]:
 
 
 def _hydrofabric2datastream_weights(
-    weights_file: str, raster_template: str, nf: int
+    weights_file: str, raster_template: str | None = None, nf: int = 1
 ) -> pd.DataFrame:
     """
-    Converts tabular weights to a dictionary where keys are catchment ids and the values are a list
-    of weights
+    Converts tabular weights to a dataframe where the index is catchment ids and the values are the
+    corresponding cells and coverages.
 
     Args:
-        weights_file (str): Path to the weights file (geopackage or parquet).
-        raster_template (str): Path to the raster file.
-        nf (int): Number of files to process.
+        weights_file (str): Path to the weights file (geopackage, parquet or json).
+        raster_template (str | None): Path to the raster file. Only needed when the source carries
+            no weights table. Defaults to None.
+        nf (int): Number of files to process. Defaults to 1.
+
+    Raises:
+        ValueError: Raised for an unrecognized source, or when weights must be calculated but no
+            raster_template was supplied.
 
     Returns:
         pd.DataFrame: A dataframe where index is catchment ids and the columns are the corresponding
@@ -274,50 +157,40 @@ def _hydrofabric2datastream_weights(
     if weights_file.endswith(".json"):
         with open(weights_file, "r", encoding="utf-8") as fp:
             weights_json = json.load(fp)
-        ncatchment = len(weights_json)
         weights_df = pd.DataFrame.from_dict(
             weights_json, orient="index", columns=["cell_id", "coverage"]
         )
-    else:
-        if weights_file.endswith(".gpkg"):
-            catchments = gpd.read_file(weights_file, layer="divides")
-            layers = gpd.list_layers(weights_file)
-            if "forcing-weights" in list(layers.name):
-                print(
-                    "Weights table found in geopackage as 'forcing-weights'. Converting to dict "
-                    + "for processing.",
-                    flush=True,
-                )
-                weights_df = gpd.read_file(weights_file, layer="forcing-weights")
-            else:
-                print(
-                    "Weights table not found in geopackage. Calculating from scratch with raster "
-                    + f"{raster_template}.",
-                    flush=True,
-                )
-                weights_df = calc_weights_from_gdf(catchments, raster_template, nf)
-                ncatchment = len(weights_df)
-        elif weights_file.endswith("parquet"):
-            weights_df = pd.read_parquet(weights_file)
-            ncatchment = len(weights_df)
+    elif weights_file.endswith(".gpkg"):
+        layers = gpd.list_layers(weights_file)
+        if "forcing-weights" in list(layers.name):
+            print(
+                "Weights table found in geopackage as 'forcing-weights'. Converting to dict "
+                + "for processing.",
+                flush=True,
+            )
+            weights_df = normalize_weight_table(
+                gpd.read_file(weights_file, layer="forcing-weights")
+            )
+        elif raster_template is None:
+            raise ValueError(
+                f"{weights_file} carries no weights table, so a raster_template is required "
+                + "to calculate them"
+            )
         else:
-            raise ValueError(f"Dont know how to deal with {weights_file}")
-
-        if "cell" in weights_df.columns:
-            weights_table_unqiue_ids = (
-                weights_df.groupby("divide_id").agg(tuple).map(list).reset_index()
+            print(
+                "Weights table not found in geopackage. Calculating from scratch with raster "
+                + f"{raster_template}.",
+                flush=True,
             )
-            weights_table_unqiue_ids = weights_table_unqiue_ids.set_index("divide_id")
-            weights_df = weights_table_unqiue_ids.rename(columns={"cell": "cell_id"})
-            weights_df["cell_id"] = weights_df["cell_id"].apply(
-                lambda x: [int(i) for i in x]
-            )
-            weights_df = weights_df.rename(columns={"coverage_fraction": "coverage"})
-            ncatchment = len(weights_df)
+            catchments = gpd.read_file(weights_file, layer="divides")
+            weights_df = calc_weights_from_gdf(catchments, raster_template, nf)
+    elif weights_file.endswith("parquet"):
+        weights_df = normalize_weight_table(pd.read_parquet(weights_file))
+    else:
+        raise ValueError(f"Dont know how to deal with {weights_file}")
 
     ncatchment = len(weights_df)
-    tf = time.perf_counter()
-    dt = tf - t0
+    dt = time.perf_counter() - t0
     rate = ncatchment / dt if dt > 0 else float("inf")
     print(
         f"{weights_file} {ncatchment} catchment weights obtained {dt:.2f} seconds total, "
