@@ -48,7 +48,7 @@ def average_nwm_variables(
     )
 
     nwm_df = nwm_df.merge(mapping_df, on="feature_id", how="left")
-    nwm_agg = nwm_df.groupby("cat_id")[["streamflow", "velocity"]].mean()
+    nwm_agg = nwm_df.groupby("cat_id")[["streamflow", "velocity"]].max()
 
     return nwm_agg, mapping_df
 
