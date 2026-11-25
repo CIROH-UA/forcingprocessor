@@ -80,11 +80,16 @@ jobs:
         env:
           DS_TAG: ${{ inputs.ds_tag || 'latest-arm64' }}
           FP_TAG: ${{ inputs.fp_tag || 'latest-arm64' }}
+          INPUT_BRANCH: ${{ inputs.branch_name }}
+          HEAD_REF: ${{ github.head_ref }}
         run: |
-          if [ "${{ github.event_name }}" == "workflow_dispatch" ] && [ -n "${{ inputs.branch_name }}" ]; then
-            BRANCH_NAME="${{ inputs.branch_name }}"
+          # ref_name is <pr>/merge on pull_request, which can't be cloned
+          if [ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ] && [ -n "$INPUT_BRANCH" ]; then
+            BRANCH_NAME="$INPUT_BRANCH"
+          elif [ "$GITHUB_EVENT_NAME" == "pull_request" ]; then
+            BRANCH_NAME="$HEAD_REF"
           else
-            BRANCH_NAME="${{ github.ref_name }}"
+            BRANCH_NAME="$GITHUB_REF_NAME"
           fi
 
           sed -i "s|\${BRANCH_NAME}|$BRANCH_NAME|g" .github/executions/fp_ds_test_execution_arm.json
